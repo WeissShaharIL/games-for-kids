@@ -3,6 +3,8 @@ import TicTacToe from './games/TicTacToe'
 import Connect4  from './games/Connect4'
 import Snake     from './games/Snake'
 import Spinner   from './games/Spinner'
+import Balloons  from './games/Balloons'
+import Shooter   from './games/Shooter'
 
 const API = '/api'
 
@@ -31,13 +33,34 @@ const PLAYERS = {
 }
 
 const GAMES = [
-  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',     component: TicTacToe, ready: true },
-  { id: 'connect4',  name: '4 in a Row',  emoji: '🔴', desc: 'Drop discs, connect four!',   component: Connect4,  ready: true },
-  { id: 'snake',     name: 'Snake Race',  emoji: '🐍', desc: 'Two snakes, one apple!',      component: Snake,     ready: true },
-  { id: 'spinner',   name: 'Spinner',     emoji: '🎡', desc: 'Tap battle + spin to decide!', component: Spinner,   ready: true },
-  { id: 'memory',    name: 'Memory',      emoji: '🃏', desc: 'Flip & match the cards',      component: null,      ready: false },
+  { id: 'tictactoe', name: 'Tic Tac Toe',  emoji: '⭕', desc: 'Classic 3×3 board game',     component: TicTacToe, ready: true  },
+  { id: 'connect4',  name: '4 in a Row',    emoji: '🔴', desc: 'Drop discs, connect four!',   component: Connect4,  ready: true  },
+  { id: 'snake',     name: 'Snake Race',    emoji: '🐍', desc: 'Two snakes, one apple!',      component: Snake,     ready: true  },
+  { id: 'balloons',  name: 'Pop Balloons!', emoji: '🎈', desc: 'Pop as many as you can!',     component: Balloons,  ready: true  },
+  { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!', component: Shooter,   ready: true  },
+  { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!', component: Spinner,  ready: true  },
+  { id: 'memory',    name: 'Memory',        emoji: '🃏', desc: 'Flip & match the cards',      component: null,      ready: false },
 ]
 
+// ── Online users pill ────────────────────────────────────────────────────────
+function OnlinePill({ name }) {
+  const p = PLAYERS[name]
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 4,
+      background: p ? p.light : '#f1f5f9',
+      border: `1px solid ${p ? p.color + '44' : '#e2e8f0'}`,
+      borderRadius: 999, padding: '3px 10px 3px 6px',
+      fontSize: 12, fontWeight: 800,
+      color: p ? p.color : '#64748b',
+    }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: p ? p.color : '#94a3b8', display: 'inline-block', flexShrink: 0 }} />
+      {p?.emoji} {name}
+    </div>
+  )
+}
+
+// ── PIN Screen ────────────────────────────────────────────────────────────────
 function PinScreen({ onLogin }) {
   const [digits, setDigits]   = useState(['', '', '', ''])
   const [error, setError]     = useState('')
@@ -110,15 +133,46 @@ function PinScreen({ onLogin }) {
   )
 }
 
+// ── Game Hub ──────────────────────────────────────────────────────────────────
 function GameHub({ player, onSelectGame }) {
+  const [onlineUsers, setOnlineUsers] = useState([])
   const p = PLAYERS[player]
+
+  // Poll online users every 5s
+  useEffect(() => {
+    const fetchOnline = () =>
+      fetch(`${API}/online`)
+        .then(r => r.json())
+        .then(d => setOnlineUsers(d.online || []))
+        .catch(() => {})
+
+    fetchOnline()
+    const t = setInterval(fetchOnline, 5000)
+    return () => clearInterval(t)
+  }, [])
+
   return (
     <div style={{ ...s.hubWrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
       <header style={s.hubHeader}>
+        {/* Left: title */}
         <div style={s.hubLogo}>🎮 Game Room</div>
-        <div style={{ ...s.hubBadge, background: p.color }}>{p.emoji} {player}</div>
+
+        {/* Center: online users */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {onlineUsers.map(name => (
+            <OnlinePill key={name} name={name} />
+          ))}
+          {onlineUsers.length === 0 && (
+            <span style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 700 }}>No one online</span>
+          )}
+        </div>
+
+        {/* Right: current player badge */}
+        <div style={{ ...s.hubBadge, background: p.color, flexShrink: 0 }}>{p.emoji} {player}</div>
       </header>
+
       <h2 style={s.hubTitle}>Pick a game!</h2>
+
       <div style={s.gameGrid}>
         {GAMES.map(g => (
           <div
@@ -142,6 +196,7 @@ function GameHub({ player, onSelectGame }) {
   )
 }
 
+// ── App root ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [player, setPlayer] = useState(null)
   const [gameId, setGameId] = useState(null)
@@ -157,6 +212,7 @@ export default function App() {
   return null
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s = {
   pinWrap:  { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
   pinCard:  { background: '#fff', borderRadius: 28, padding: '48px 40px', textAlign: 'center', boxShadow: '0 24px 64px #0003', minWidth: 320 },
@@ -167,13 +223,19 @@ const s = {
   pinInput: { width: 56, height: 64, fontSize: 28, fontWeight: 900, textAlign: 'center', border: '2px solid', borderRadius: 14, outline: 'none', color: '#1e1b4b', transition: 'all 0.2s', background: '#f8fafc', fontFamily: 'inherit' },
   pinError:   { color: '#ef4444', fontWeight: 700, fontSize: 14, marginTop: 4 },
   pinLoading: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
+
   hubWrap:   { minHeight: '100vh', paddingBottom: 40 },
-  hubHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
-  hubLogo:   { fontSize: 20, fontWeight: 900, color: '#1e1b4b' },
-  hubBadge:  { color: '#fff', padding: '6px 16px', borderRadius: 999, fontWeight: 800, fontSize: 15 },
-  hubTitle:  { fontSize: 28, fontWeight: 900, color: '#1e1b4b', textAlign: 'center', padding: '32px 0 16px' },
-  gameGrid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 20, maxWidth: 700, margin: '0 auto', padding: '0 24px' },
-  gameCard:  { background: '#ffffffee', borderRadius: 20, padding: '28px 20px', textAlign: 'center', border: '2px solid', boxShadow: '0 4px 16px #0001', transition: 'transform 0.15s' },
+  hubHeader: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '10px 16px',
+    background: '#ffffffcc', backdropFilter: 'blur(8px)',
+    boxShadow: '0 1px 0 #e2e8f0',
+  },
+  hubLogo:  { fontSize: 14, fontWeight: 900, color: '#1e1b4b', flexShrink: 0 },
+  hubBadge: { color: '#fff', padding: '5px 12px', borderRadius: 999, fontWeight: 800, fontSize: 13 },
+  hubTitle: { fontSize: 26, fontWeight: 900, color: '#1e1b4b', textAlign: 'center', padding: '24px 0 14px' },
+  gameGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 20, maxWidth: 700, margin: '0 auto', padding: '0 24px' },
+  gameCard: { background: '#ffffffee', borderRadius: 20, padding: '28px 20px', textAlign: 'center', border: '2px solid', boxShadow: '0 4px 16px #0001', transition: 'transform 0.15s' },
   gameEmoji: { fontSize: 48, marginBottom: 10 },
   gameName:  { fontSize: 18, fontWeight: 900, color: '#1e1b4b', marginBottom: 6 },
   gameDesc:  { fontSize: 13, color: '#94a3b8' },

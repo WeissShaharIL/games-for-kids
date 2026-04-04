@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
+import { vibrate, VIBRATIONS } from '../vibrate'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/snake/ws`
@@ -31,7 +32,7 @@ const PLAYERS = {
 
 function DPadBtn({ label, dir, color, onPress }) {
   const [pressed, setPressed] = useState(false)
-  const handle  = (e) => { e.preventDefault(); setPressed(true); onPress(dir) }
+  const handle  = (e) => { e.preventDefault(); setPressed(true); vibrate(VIBRATIONS.dpad); onPress(dir) }
   const release = () => setPressed(false)
   return (
     <button
@@ -69,40 +70,15 @@ function DPad({ color, onDir }) {
   )
 }
 
-// ── Countdown overlay ─────────────────────────────────────────────────────────
-function CountdownOverlay({ count, color }) {
-  const label = count === 0 ? 'GO!' : String(count)
-  const isGo  = count === 0
-  return (
-    <div style={{
-      position: 'absolute', inset: 0,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#00000066',
-      borderRadius: 10,
-      zIndex: 10,
-    }}>
-      <div style={{
-        fontSize:   isGo ? 80 : 96,
-        fontWeight: 900,
-        color:      isGo ? color : '#fff',
-        fontFamily: 'inherit',
-        textShadow: `0 4px 24px ${isGo ? color : '#000'}`,
-        animation:  'countPop 0.35s cubic-bezier(0.34,1.56,0.64,1)',
-        lineHeight: 1,
-      }}>
-        {label}
-      </div>
-    </div>
-  )
-}
-
 export default function Snake({ player, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const canvasRef           = useRef(null)
   const wsRef               = useRef(null)
+  const animRef             = useRef(null)
   const prevWinner          = useRef(null)
   const lastDir             = useRef(null)
+  const mountedRef          = useRef(true)   // ← tracks if component is still mounted
 
   const p     = PLAYERS[player]
   const other = player === 'Ariel' ? 'Ella' : 'Ariel'
@@ -127,16 +103,26 @@ export default function Snake({ player, onBack }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [sendDir])
 
-  const connect = useCallback(() => {
+  useEffect(() => {
+    mountedRef.current = true
+
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-    ws.onopen = () => setStatus(`Waiting for ${other}...`)
+
+    ws.onopen = () => {
+      if (!mountedRef.current) return
+      setStatus(`Waiting for ${other}...`)
+    }
+
     ws.onmessage = (e) => {
+      // Ignore all messages if we've navigated away
+      if (!mountedRef.current) return
+
       const data = JSON.parse(e.data)
       setState(data)
       lastDir.current = null
 
-      // Play a tick sound on each countdown number
+      // Sounds — only if still mounted
       if (data.countdown !== null && data.countdown !== undefined) {
         if (data.countdown > 0) playSound('place')
         else                    playSound('rematch')
@@ -150,28 +136,54 @@ export default function Snake({ player, onBack }) {
       }
       if (!data.winner) prevWinner.current = null
 
-      if (data.message)                        setStatus(data.message)
-      else if (data.connected?.length < 2)     setStatus(`Waiting for ${other}...`)
-      else if (data.countdown > 0)             setStatus('Get ready...')
-      else if (data.countdown === 0)           setStatus('GO!')
-      else if (data.winner === 'draw')         setStatus("🤝 It's a draw!")
-      else if (data.winner === player)         setStatus('🎉 You won the round!')
-      else if (data.winner)                    setStatus(`${data.winner} won the round!`)
-      else if (!data.snakes?.[player]?.alive)  setStatus('💀 You crashed! Next round soon...')
-      else                                     setStatus('🕹️ Use the buttons to move!')
+      if (data.message)                       setStatus(data.message)
+      else if (data.connected?.length < 2)    setStatus(`Waiting for ${other}...`)
+      else if (data.countdown > 0)            setStatus('Get ready...')
+      else if (data.countdown === 0)          setStatus('GO!')
+      else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
+      else if (data.winner === player)        setStatus('🎉 You won the round!')
+      else if (data.winner)                   setStatus(`${data.winner} won the round!`)
+      else if (!data.snakes?.[player]?.alive) setStatus('💀 You crashed! Next round soon...')
+      else                                    setStatus('🕹️ Use the buttons to move!')
     }
-    ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
+
+    ws.onclose = () => {
+      if (!mountedRef.current) return
+      setStatus('Disconnected. Reconnecting...')
+    }
     ws.onerror = () => ws.close()
+
+    return () => {
+      // Mark unmounted FIRST so onmessage ignores any in-flight messages
+      mountedRef.current = false
+      ws.close()
+      cancelAnimationFrame(animRef.current)
+    }
   }, [player])
 
-  useEffect(() => { connect(); return () => wsRef.current?.close() }, [connect])
-
+  // Canvas render loop
   useEffect(() => {
-    if (!state || !canvasRef.current) return
     const canvas = canvasRef.current
-    const ctx    = canvas.getContext('2d')
-    const rows   = state.rows || 20
-    const cols   = state.cols || 20
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+
+    const render = () => {
+      if (!mountedRef.current) return
+
+      // Get latest state from DOM — use a ref instead
+      animRef.current = requestAnimationFrame(render)
+    }
+    animRef.current = requestAnimationFrame(render)
+    return () => cancelAnimationFrame(animRef.current)
+  }, [])
+
+  // Draw whenever state changes
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !state) return
+    const ctx  = canvas.getContext('2d')
+    const rows = state.rows || 20
+    const cols = state.cols || 20
     canvas.width  = cols * CELL
     canvas.height = rows * CELL
 
@@ -212,26 +224,29 @@ export default function Snake({ player, onBack }) {
       ctx.strokeStyle = '#15803d'; ctx.lineWidth = 1.5
       ctx.beginPath(); ctx.moveTo(ax, ay-r); ctx.lineTo(ax+2, ay-r-3); ctx.stroke()
     }
+
+    // Countdown overlay
+    if (state.countdown !== null && state.countdown !== undefined) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.font      = `900 ${CELL * 8}px Nunito, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.fillStyle = state.countdown === 0 ? '#fbbf24' : '#fff'
+      ctx.shadowColor = '#000'; ctx.shadowBlur = 20
+      ctx.fillText(state.countdown === 0 ? 'GO!' : String(state.countdown), canvas.width/2, canvas.height/2 + CELL*3)
+      ctx.shadowBlur = 0
+    }
   }, [state])
 
-  const bothHere    = state?.connected?.length === 2
-  const myScore     = state?.scores?.[player]  ?? 0
-  const otherScore  = state?.scores?.[other]   ?? 0
-  const countdown   = state?.countdown         ?? null
-  const showCountdown = bothHere && countdown !== null
+  const bothHere   = state?.connected?.length === 2
+  const myScore    = state?.scores?.[player]  ?? 0
+  const otherScore = state?.scores?.[other]   ?? 0
 
   const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : bothHere ? p.light : '#f1f5f9'
   const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : bothHere ? p.color : '#64748b'
 
   return (
     <div style={{ ...s.wrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
-      <style>{`
-        @keyframes countPop {
-          from { transform: scale(0.4); opacity: 0; }
-          to   { transform: scale(1);   opacity: 1; }
-        }
-      `}</style>
-
       <div style={s.header}>
         <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
         <div style={s.title}>Snake Race 🐍</div>
@@ -264,10 +279,8 @@ export default function Snake({ player, onBack }) {
 
       <div style={{ ...s.status, background: statusBg, color: statusColor }}>{status}</div>
 
-      {/* Canvas + countdown overlay */}
-      <div style={{ ...s.canvasWrap, position: 'relative' }}>
+      <div style={s.canvasWrap}>
         <canvas ref={canvasRef} style={{ borderRadius: 10, display: 'block', maxWidth: '100%' }} />
-        {showCountdown && <CountdownOverlay count={countdown} color={p.color} />}
       </div>
 
       {bothHere && <DPad color={p.color} onDir={sendDir} />}

@@ -33,7 +33,7 @@ class SnakeGame:
         }
         self.apple     = self._spawn_apple()
         self.winner    = None
-        self.countdown = None  # None | 3 | 2 | 1 | 0
+        self.countdown = None
 
     def _all_occupied(self):
         occupied = set()
@@ -128,6 +128,12 @@ class SnakeGame:
             "cols":      COLS,
         }
 
+    def stop_loop(self):
+        """Cancel the game loop task if running."""
+        if self.loop_task and not self.loop_task.done():
+            self.loop_task.cancel()
+            self.loop_task = None
+
     def new_round(self):
         self._reset_board()
 
@@ -147,9 +153,10 @@ async def broadcast(message: dict):
 
 
 async def game_loop():
-    # ── Countdown ────────────────────────────────────────────────────────────
+    # Countdown
     for n in [3, 2, 1]:
         if len(game.connections) < 2:
+            game.countdown = None
             return
         game.countdown = n
         await broadcast(game.state())
@@ -158,29 +165,30 @@ async def game_loop():
     game.countdown = 0
     await broadcast(game.state())
     await asyncio.sleep(0.1)
-
     game.countdown = None
 
-    # ── Game tick loop ────────────────────────────────────────────────────────
+    # Tick loop
     while True:
         await asyncio.sleep(TICK_RATE)
 
+        # Stop if someone left
         if len(game.connections) < 2:
             game._reset_board()
             await broadcast(game.state())
-            break
+            return
 
         running = game.tick()
         await broadcast(game.state())
 
         if not running:
             await asyncio.sleep(2.5)
+            # Only restart if BOTH players still connected
             if len(game.connections) == 2:
                 game.new_round()
                 await broadcast(game.state())
-                # Restart loop with countdown for next round
+                # Restart loop with fresh countdown
                 game.loop_task = asyncio.create_task(game_loop())
-            break
+            return
 
 
 @router.websocket("/ws/{player}")
@@ -190,28 +198,38 @@ async def snake_ws(websocket: WebSocket, player: str):
         return
 
     await websocket.accept()
+
+    # Stop any existing loop before resetting
+    game.stop_loop()
     game.connections[player] = websocket
     game._reset_board()
 
     await broadcast(game.state())
 
+    # Start game loop only when both are connected
     if len(game.connections) == 2:
-        if game.loop_task is None or game.loop_task.done():
-            game.loop_task = asyncio.create_task(game_loop())
+        game.loop_task = asyncio.create_task(game_loop())
 
     try:
         while True:
             raw  = await websocket.receive_text()
             data = json.loads(raw)
             if data.get("type") == "dir":
-                # Ignore direction input during countdown
                 if game.countdown is None:
                     game.set_dir(player, data.get("dir", ""))
 
     except WebSocketDisconnect:
         game.connections.pop(player, None)
-        if game.loop_task and not game.loop_task.done():
-            game.loop_task.cancel()
-            game.loop_task = None
+
+        # Always stop the loop when anyone disconnects
+        game.stop_loop()
         game._reset_board()
-        await broadcast({**game.state(), "message": f"{player} disconnected."})
+
+        # Scores persist across rounds but reset on full disconnect
+        if len(game.connections) == 0:
+            game.scores = {"Ariel": 0, "Ella": 0}
+
+        await broadcast({
+            **game.state(),
+            "message": f"{player} disconnected. Waiting...",
+        })

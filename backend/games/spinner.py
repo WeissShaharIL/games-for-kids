@@ -8,6 +8,11 @@ router = APIRouter()
 TAP_DURATION = 10
 TOTAL_PIECES = 8
 
+def generate_weights() -> list[float]:
+    raw   = [random.uniform(0.5, 3.0) for _ in range(TOTAL_PIECES)]
+    total = sum(raw)
+    return [round(v / total, 4) for v in raw]
+
 class SpinnerGame:
     def __init__(self):
         self.connections: dict[str, WebSocket] = {}
@@ -18,10 +23,11 @@ class SpinnerGame:
         self.phase        = "waiting"
         self.taps         = {"Ariel": 0, "Ella": 0}
         self.tap_winner   = None
-        self.pick_order   = []       # whose turn each pick is
-        self.pieces       = [None] * TOTAL_PIECES  # None | "Ariel" | "Ella"
-        self.current_pick = 0        # how many pieces have been claimed
-        self.spin_result  = None     # index of winning slice
+        self.pick_order   = []
+        self.pieces       = [None] * TOTAL_PIECES
+        self.weights      = generate_weights()
+        self.current_pick = 0
+        self.spin_result  = None
         self.spin_angle   = None
 
     def _alternate_order(self, first: str) -> list:
@@ -29,9 +35,7 @@ class SpinnerGame:
         return [first if i % 2 == 0 else second for i in range(TOTAL_PIECES)]
 
     def whose_turn(self) -> str | None:
-        if not self.pick_order:
-            return None
-        if self.current_pick >= TOTAL_PIECES:
+        if not self.pick_order or self.current_pick >= TOTAL_PIECES:
             return None
         return self.pick_order[self.current_pick]
 
@@ -43,7 +47,7 @@ class SpinnerGame:
         if not (0 <= index < TOTAL_PIECES):
             return False
         if self.pieces[index] is not None:
-            return False  # already claimed
+            return False
         self.pieces[index] = player
         self.current_pick += 1
         if self.current_pick >= TOTAL_PIECES:
@@ -53,11 +57,31 @@ class SpinnerGame:
     def spin(self) -> dict:
         if self.phase != "spinning":
             return {}
-        winner_idx       = random.randint(0, TOTAL_PIECES - 1)
-        slice_deg        = 360 / TOTAL_PIECES
-        base_angle       = winner_idx * slice_deg + slice_deg / 2
-        full_spins       = random.randint(5, 8) * 360
-        final_angle      = full_spins + (270 - base_angle)
+
+        # Pick winner weighted by slice size
+        winner_idx = random.choices(range(TOTAL_PIECES), weights=self.weights, k=1)[0]
+
+        # The frontend draws slice i starting at:
+        #   angle_rad + cumulative_i * 2π - π/2
+        # where angle_rad is the wheel rotation in radians.
+        #
+        # For the CENTER of winning slice to sit at the TOP (pointer at -π/2):
+        #   angle_rad + cumulative_center_i * 2π - π/2 = -π/2
+        #   angle_rad = -cumulative_center_i * 2π
+        #
+        # In degrees:
+        #   final_angle = -slice_center_fraction * 360
+        #
+        # We add full_spins * 360 so the wheel visually spins multiple times.
+
+        # Cumulative fraction up to start of winner slice
+        cumulative = sum(self.weights[:winner_idx])
+        # Center fraction of winner slice
+        center_fraction = cumulative + self.weights[winner_idx] / 2.0
+
+        full_spins  = random.randint(5, 8) * 360
+        final_angle = full_spins - (center_fraction * 360)
+
         self.spin_angle  = final_angle
         self.spin_result = winner_idx
         self.phase       = "result"
@@ -70,6 +94,7 @@ class SpinnerGame:
             "taps":         self.taps,
             "tap_winner":   self.tap_winner,
             "pieces":       self.pieces,
+            "weights":      self.weights,
             "pick_order":   self.pick_order,
             "current_pick": self.current_pick,
             "whose_turn":   self.whose_turn(),
