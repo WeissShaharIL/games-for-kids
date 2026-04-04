@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from games.tictactoe import router as tictactoe_router
+from games.connect4   import router as connect4_router
 
 load_dotenv()
 
@@ -45,3 +46,4 @@ async def health():
 #   1. Create backend/games/<game>.py with a FastAPI router
 #   2. Import and include it here
 app.include_router(tictactoe_router, prefix="/tictactoe")
+app.include_router(connect4_router,  prefix="/connect4")

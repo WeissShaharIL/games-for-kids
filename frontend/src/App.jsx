@@ -1,18 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import TicTacToe from './games/TicTacToe'
+import Connect4  from './games/Connect4'
 
 const API = '/api'
 
 const PLAYERS = {
-  Ariel: { color: '#f97316', light: '#fff7ed', emoji: '🦁' },
-  Ella:  { color: '#a855f7', light: '#faf5ff', emoji: '🦋' },
+  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
 }
 
 // ── Add new games here only ───────────────────────────────────────────────────
 const GAMES = [
-  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game', component: TicTacToe, ready: true  },
-  { id: 'memory',    name: 'Memory',       emoji: '🃏', desc: 'Flip & match the cards',  component: null,      ready: false },
-  { id: 'snake',     name: 'Snake Race',   emoji: '🐍', desc: 'Grow your snake faster!', component: null,      ready: false },
+  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',  component: TicTacToe, ready: true  },
+  { id: 'connect4',  name: '4 in a Row',  emoji: '🔴', desc: 'Drop discs, connect four!', component: Connect4,  ready: true  },
+  { id: 'memory',    name: 'Memory',       emoji: '🃏', desc: 'Flip & match the cards',   component: null,      ready: false },
 ]
 
 // ── PIN Screen ────────────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ function PinScreen({ onLogin }) {
 function GameHub({ player, onSelectGame }) {
   const p = PLAYERS[player]
   return (
-    <div style={s.hubWrap}>
+    <div style={{ ...s.hubWrap, background: p.bg }}>
       <header style={s.hubHeader}>
         <div style={s.hubLogo}>🎮 Game Room</div>
         <div style={{ ...s.hubBadge, background: p.color }}>{p.emoji} {player}</div>
@@ -164,9 +165,7 @@ const s = {
   pinError:   { color: '#ef4444', fontWeight: 700, fontSize: 14, marginTop: 4 },
   pinLoading: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
 
-  hubWrap: {
-    minHeight: '100vh', background: '#f8fafc', paddingBottom: 40,
-  },
+  hubWrap:   { minHeight: '100vh', paddingBottom: 40 },
   hubHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     padding: '16px 24px', background: '#fff', boxShadow: '0 1px 0 #e2e8f0',
