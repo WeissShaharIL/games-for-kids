@@ -5,10 +5,10 @@ from dotenv import load_dotenv
 
 from games.tictactoe import router as tictactoe_router
 from games.connect4   import router as connect4_router
+from games.snake      import router as snake_router
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
 PIN_ARIEL = os.getenv("PIN_ARIEL", "1111")
 PIN_ELLA  = os.getenv("PIN_ELLA",  "2222")
 
@@ -17,7 +17,6 @@ PINS = {
     PIN_ELLA:  "Ella",
 }
 
-# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Kids Game Hub")
 
 app.add_middleware(
@@ -27,7 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
 @app.post("/auth")
 async def auth(payload: dict):
     pin  = str(payload.get("pin", ""))
@@ -36,14 +34,10 @@ async def auth(payload: dict):
         raise HTTPException(status_code=401, detail="Wrong PIN")
     return {"player": name}
 
-# ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-# ── Games ─────────────────────────────────────────────────────────────────────
-# To add a new game:
-#   1. Create backend/games/<game>.py with a FastAPI router
-#   2. Import and include it here
 app.include_router(tictactoe_router, prefix="/tictactoe")
 app.include_router(connect4_router,  prefix="/connect4")
+app.include_router(snake_router,     prefix="/snake")

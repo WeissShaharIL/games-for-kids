@@ -1,22 +1,41 @@
 import { useState, useEffect, useRef } from 'react'
 import TicTacToe from './games/TicTacToe'
 import Connect4  from './games/Connect4'
+import Snake     from './games/Snake'
 
 const API = '/api'
 
+const CROWN_SVG = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <g opacity="0.10" fill="#16a34a">
+    <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
+    <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
+    <rect x="30" y="85" width="60" height="10" rx="3"/>
+  </g>
+</svg>`)
+
+const TIARA_SVG = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <g opacity="0.10" fill="#db2777">
+    <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
+    <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
+    <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
+    <rect x="18" y="72" width="84" height="8" rx="4"/>
+  </g>
+</svg>`)
+
 const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', bgImage: `url("data:image/svg+xml,${CROWN_SVG}")`, emoji: '🦁' },
+  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', bgImage: `url("data:image/svg+xml,${TIARA_SVG}")`, emoji: '🦋' },
 }
 
-// ── Add new games here only ───────────────────────────────────────────────────
 const GAMES = [
-  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',  component: TicTacToe, ready: true  },
+  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',   component: TicTacToe, ready: true  },
   { id: 'connect4',  name: '4 in a Row',  emoji: '🔴', desc: 'Drop discs, connect four!', component: Connect4,  ready: true  },
-  { id: 'memory',    name: 'Memory',       emoji: '🃏', desc: 'Flip & match the cards',   component: null,      ready: false },
+  { id: 'snake',     name: 'Snake Race',  emoji: '🐍', desc: 'Two snakes, one apple!',    component: Snake,     ready: true  },
+  { id: 'memory',    name: 'Memory',      emoji: '🃏', desc: 'Flip & match the cards',    component: null,      ready: false },
 ]
 
-// ── PIN Screen ────────────────────────────────────────────────────────────────
 function PinScreen({ onLogin }) {
   const [digits, setDigits]   = useState(['', '', '', ''])
   const [error, setError]     = useState('')
@@ -89,18 +108,15 @@ function PinScreen({ onLogin }) {
   )
 }
 
-// ── Game Hub ──────────────────────────────────────────────────────────────────
 function GameHub({ player, onSelectGame }) {
   const p = PLAYERS[player]
   return (
-    <div style={{ ...s.hubWrap, background: p.bg }}>
+    <div style={{ ...s.hubWrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
       <header style={s.hubHeader}>
         <div style={s.hubLogo}>🎮 Game Room</div>
         <div style={{ ...s.hubBadge, background: p.color }}>{p.emoji} {player}</div>
       </header>
-
       <h2 style={s.hubTitle}>Pick a game!</h2>
-
       <div style={s.gameGrid}>
         {GAMES.map(g => (
           <div
@@ -124,13 +140,11 @@ function GameHub({ player, onSelectGame }) {
   )
 }
 
-// ── App root ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [player, setPlayer] = useState(null)
   const [gameId, setGameId] = useState(null)
 
   if (!player) return <PinScreen onLogin={setPlayer} />
-
   if (!gameId) return <GameHub player={player} onSelectGame={setGameId} />
 
   const game = GAMES.find(g => g.id === gameId)
@@ -138,50 +152,26 @@ export default function App() {
     const GameComponent = game.component
     return <GameComponent player={player} onBack={() => setGameId(null)} />
   }
-
   return null
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = {
-  pinWrap: {
-    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  },
-  pinCard: {
-    background: '#fff', borderRadius: 28, padding: '48px 40px',
-    textAlign: 'center', boxShadow: '0 24px 64px #0003', minWidth: 320,
-  },
+  pinWrap:  { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+  pinCard:  { background: '#fff', borderRadius: 28, padding: '48px 40px', textAlign: 'center', boxShadow: '0 24px 64px #0003', minWidth: 320 },
   pinLogo:  { fontSize: 56, marginBottom: 8 },
   pinTitle: { fontSize: 32, fontWeight: 900, color: '#1e1b4b', margin: '0 0 8px' },
   pinSub:   { fontSize: 16, color: '#94a3b8', marginBottom: 32 },
   pinRow:   { display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 20 },
-  pinInput: {
-    width: 56, height: 64, fontSize: 28, fontWeight: 900, textAlign: 'center',
-    border: '2px solid', borderRadius: 14, outline: 'none',
-    color: '#1e1b4b', transition: 'all 0.2s', background: '#f8fafc',
-    fontFamily: 'inherit',
-  },
+  pinInput: { width: 56, height: 64, fontSize: 28, fontWeight: 900, textAlign: 'center', border: '2px solid', borderRadius: 14, outline: 'none', color: '#1e1b4b', transition: 'all 0.2s', background: '#f8fafc', fontFamily: 'inherit' },
   pinError:   { color: '#ef4444', fontWeight: 700, fontSize: 14, marginTop: 4 },
   pinLoading: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
-
   hubWrap:   { minHeight: '100vh', paddingBottom: 40 },
-  hubHeader: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '16px 24px', background: '#fff', boxShadow: '0 1px 0 #e2e8f0',
-  },
-  hubLogo:  { fontSize: 20, fontWeight: 900, color: '#1e1b4b' },
-  hubBadge: { color: '#fff', padding: '6px 16px', borderRadius: 999, fontWeight: 800, fontSize: 15 },
-  hubTitle: { fontSize: 28, fontWeight: 900, color: '#1e1b4b', textAlign: 'center', padding: '32px 0 16px' },
-  gameGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-    gap: 20, maxWidth: 680, margin: '0 auto', padding: '0 24px',
-  },
-  gameCard: {
-    background: '#fff', borderRadius: 20, padding: '28px 20px',
-    textAlign: 'center', border: '2px solid',
-    boxShadow: '0 4px 16px #0001', transition: 'transform 0.15s',
-  },
+  hubHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
+  hubLogo:   { fontSize: 20, fontWeight: 900, color: '#1e1b4b' },
+  hubBadge:  { color: '#fff', padding: '6px 16px', borderRadius: 999, fontWeight: 800, fontSize: 15 },
+  hubTitle:  { fontSize: 28, fontWeight: 900, color: '#1e1b4b', textAlign: 'center', padding: '32px 0 16px' },
+  gameGrid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 20, maxWidth: 700, margin: '0 auto', padding: '0 24px' },
+  gameCard:  { background: '#ffffffee', borderRadius: 20, padding: '28px 20px', textAlign: 'center', border: '2px solid', boxShadow: '0 4px 16px #0001', transition: 'transform 0.15s' },
   gameEmoji: { fontSize: 48, marginBottom: 10 },
   gameName:  { fontSize: 18, fontWeight: 900, color: '#1e1b4b', marginBottom: 6 },
   gameDesc:  { fontSize: 13, color: '#94a3b8' },
