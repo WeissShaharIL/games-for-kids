@@ -8,9 +8,7 @@ const CROWN_SVG = encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
   <g opacity="0.10" fill="#16a34a">
     <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
-    <circle cx="20" cy="55" r="7"/>
-    <circle cx="60" cy="15" r="7"/>
-    <circle cx="100" cy="55" r="7"/>
+    <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
     <rect x="30" y="85" width="60" height="10" rx="3"/>
   </g>
 </svg>`)
@@ -19,11 +17,8 @@ const TIARA_SVG = encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
   <g opacity="0.10" fill="#db2777">
     <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
-    <circle cx="60" cy="22" r="6"/>
-    <circle cx="38" cy="42" r="4"/>
-    <circle cx="82" cy="42" r="4"/>
-    <ellipse cx="20" cy="70" rx="5" ry="4"/>
-    <ellipse cx="100" cy="70" rx="5" ry="4"/>
+    <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
+    <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
     <rect x="18" y="72" width="84" height="8" rx="4"/>
   </g>
 </svg>`)
@@ -34,11 +29,11 @@ const PLAYERS = {
 }
 
 export default function TicTacToe({ player, onBack }) {
-  const [state, setState]       = useState(null)
-  const [status, setStatus]     = useState('Connecting...')
-  const prevWinner              = useRef(null)
-  const prevBoardLen            = useRef(0)
-  const wsRef                   = useRef(null)
+  const [state, setState]   = useState(null)
+  const [status, setStatus] = useState('Connecting...')
+  const wsRef               = useRef(null)
+  const mountedRef          = useRef(true)
+  const prevWinner          = useRef(null)
 
   const p     = PLAYERS[player]
   const other = player === 'Ariel' ? 'Ella' : 'Ariel'
@@ -47,25 +42,18 @@ export default function TicTacToe({ player, onBack }) {
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-    ws.onopen    = () => setStatus(`Waiting for ${other}...`)
+    ws.onopen = () => { if (!mountedRef.current) return; setStatus(`Waiting for ${other}...`) }
     ws.onmessage = (e) => {
+      if (!mountedRef.current) return
       const data = JSON.parse(e.data)
-
-      // Sound triggers
-      const filled = data.board?.filter(c => c !== '').length || 0
-      if (filled > prevBoardLen.current) {
-        playSound('place')
-      }
-      prevBoardLen.current = filled
-
+      setState(data)
       if (data.winner && data.winner !== prevWinner.current) {
-        if (data.winner === 'draw')        playSound('draw')
-        else if (data.winner === player)   playSound('win')
-        else                               playSound('lose')
+        if (data.winner === 'draw')      playSound('draw')
+        else if (data.winner === player) playSound('win')
+        else                             playSound('lose')
         prevWinner.current = data.winner
       }
-
-      setState(data)
+      if (!data.winner) prevWinner.current = null
       if (data.message)                      setStatus(data.message)
       else if (data.connected?.length < 2)   setStatus(`Waiting for ${other}...`)
       else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
@@ -74,22 +62,25 @@ export default function TicTacToe({ player, onBack }) {
       else if (data.current_turn === player) setStatus('⭐ Your turn!')
       else                                   setStatus(`${data.current_turn}'s turn...`)
     }
-    ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
+    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
     ws.onerror = () => ws.close()
   }, [player])
 
-  useEffect(() => { connect(); return () => wsRef.current?.close() }, [connect])
+  useEffect(() => {
+    mountedRef.current = true
+    connect()
+    return () => { mountedRef.current = false; wsRef.current?.close() }
+  }, [connect])
 
   const move = (i) => {
     if (!state || state.winner || state.current_turn !== player) return
-    if (state.board[i] || state.connected?.length < 2)          return
+    if (state.board[i] || state.connected?.length < 2) return
+    playSound('place')
     wsRef.current?.send(JSON.stringify({ type: 'move', index: i }))
   }
 
   const rematch = () => {
     playSound('rematch')
-    prevWinner.current   = null
-    prevBoardLen.current = 0
     wsRef.current?.send(JSON.stringify({ type: 'rematch' }))
   }
 

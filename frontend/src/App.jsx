@@ -5,6 +5,11 @@ import Snake     from './games/Snake'
 import Spinner   from './games/Spinner'
 import Balloons  from './games/Balloons'
 import Shooter   from './games/Shooter'
+import AirHockey from './games/AirHockey'
+import Lego from './games/Lego'
+
+
+
 
 const API = '/api'
 
@@ -39,7 +44,10 @@ const GAMES = [
   { id: 'balloons',  name: 'Pop Balloons!', emoji: '🎈', desc: 'Pop as many as you can!',     component: Balloons,  ready: true  },
   { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!', component: Shooter,   ready: true  },
   { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!', component: Spinner,  ready: true  },
+  { id: 'airhockey', name: 'Air Hockey', emoji: '🏒', desc: 'Drag your mallet, score goals!', component: AirHockey, ready: true },
+  { id: 'lego', name: 'LEGO Builder', emoji: '🧱', desc: 'Build together!', component: Lego, ready: true },
   { id: 'memory',    name: 'Memory',        emoji: '🃏', desc: 'Flip & match the cards',      component: null,      ready: false },
+
 ]
 
 // ── Online users pill ────────────────────────────────────────────────────────
