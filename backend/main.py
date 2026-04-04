@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from games.tictactoe import router as tictactoe_router
 from games.connect4   import router as connect4_router
 from games.snake      import router as snake_router
+from games.spinner    import router as spinner_router
 
 load_dotenv()
 
@@ -41,3 +42,4 @@ async def health():
 app.include_router(tictactoe_router, prefix="/tictactoe")
 app.include_router(connect4_router,  prefix="/connect4")
 app.include_router(snake_router,     prefix="/snake")
+app.include_router(spinner_router,   prefix="/spinner")

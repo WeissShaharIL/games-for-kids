@@ -31,8 +31,9 @@ class SnakeGame:
             "Ariel": {"body": [(10, 3),  (10, 2),  (10, 1)],  "dir": "RIGHT", "alive": True},
             "Ella":  {"body": [(10, 16), (10, 17), (10, 18)], "dir": "LEFT",  "alive": True},
         }
-        self.apple  = self._spawn_apple()
-        self.winner = None
+        self.apple     = self._spawn_apple()
+        self.winner    = None
+        self.countdown = None  # None | 3 | 2 | 1 | 0
 
     def _all_occupied(self):
         occupied = set()
@@ -82,7 +83,6 @@ class SnakeGame:
             else:
                 snake["body"].pop()
 
-        # Collision detection
         all_bodies = {p: set(map(tuple, s["body"])) for p, s in self.snakes.items() if s["alive"]}
 
         for player, snake in self.snakes.items():
@@ -90,14 +90,12 @@ class SnakeGame:
                 continue
             head  = tuple(snake["body"][0])
             other = "Ella" if player == "Ariel" else "Ariel"
-
             if head in set(map(tuple, snake["body"][1:])):
                 snake["alive"] = False
                 continue
             if other in all_bodies and head in all_bodies[other]:
                 snake["alive"] = False
 
-        # Head-on collision
         heads = {p: tuple(s["body"][0]) for p, s in self.snakes.items() if s["alive"]}
         if len(heads) == 2 and list(heads.values())[0] == list(heads.values())[1]:
             for s in self.snakes.values():
@@ -125,6 +123,7 @@ class SnakeGame:
             "winner":    self.winner,
             "scores":    self.scores,
             "connected": list(self.connections.keys()),
+            "countdown": self.countdown,
             "rows":      ROWS,
             "cols":      COLS,
         }
@@ -148,6 +147,21 @@ async def broadcast(message: dict):
 
 
 async def game_loop():
+    # ── Countdown ────────────────────────────────────────────────────────────
+    for n in [3, 2, 1]:
+        if len(game.connections) < 2:
+            return
+        game.countdown = n
+        await broadcast(game.state())
+        await asyncio.sleep(1.0)
+
+    game.countdown = 0
+    await broadcast(game.state())
+    await asyncio.sleep(0.1)
+
+    game.countdown = None
+
+    # ── Game tick loop ────────────────────────────────────────────────────────
     while True:
         await asyncio.sleep(TICK_RATE)
 
@@ -164,8 +178,9 @@ async def game_loop():
             if len(game.connections) == 2:
                 game.new_round()
                 await broadcast(game.state())
-            else:
-                break
+                # Restart loop with countdown for next round
+                game.loop_task = asyncio.create_task(game_loop())
+            break
 
 
 @router.websocket("/ws/{player}")
@@ -189,7 +204,9 @@ async def snake_ws(websocket: WebSocket, player: str):
             raw  = await websocket.receive_text()
             data = json.loads(raw)
             if data.get("type") == "dir":
-                game.set_dir(player, data.get("dir", ""))
+                # Ignore direction input during countdown
+                if game.countdown is None:
+                    game.set_dir(player, data.get("dir", ""))
 
     except WebSocketDisconnect:
         game.connections.pop(player, None)

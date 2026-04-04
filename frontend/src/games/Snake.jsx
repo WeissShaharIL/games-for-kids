@@ -39,7 +39,7 @@ function DPadBtn({ label, dir, color, onPress }) {
       onPointerUp={release}
       onPointerLeave={release}
       style={{
-        width: 72, height: 72,
+        width: 72, height: 72, border: 'none',
         borderRadius: 18,
         outline: `2px solid ${color}44`,
         background: pressed ? color : `${color}22`,
@@ -49,8 +49,7 @@ function DPadBtn({ label, dir, color, onPress }) {
         boxShadow:  pressed ? `0 2px 0 ${color}88` : `0 5px 0 ${color}44`,
         transform:  pressed ? 'translateY(3px)' : 'translateY(0)',
         transition: 'all 0.08s',
-        userSelect: 'none', WebkitUserSelect: 'none',
-        touchAction: 'none', border: 'none',
+        userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none',
       }}
     >{label}</button>
   )
@@ -62,14 +61,37 @@ function DPad({ color, onDir }) {
       <DPadBtn label="▲" dir="UP"    color={color} onPress={onDir} />
       <div style={{ display: 'flex', gap: 8 }}>
         <DPadBtn label="◄" dir="LEFT"  color={color} onPress={onDir} />
-        <div style={{
-          width: 72, height: 72, borderRadius: 18,
-          background: `${color}11`, outline: `2px solid ${color}22`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
-        }}>🕹️</div>
+        <div style={{ width: 72, height: 72, borderRadius: 18, background: `${color}11`, outline: `2px solid ${color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🕹️</div>
         <DPadBtn label="►" dir="RIGHT" color={color} onPress={onDir} />
       </div>
       <DPadBtn label="▼" dir="DOWN"  color={color} onPress={onDir} />
+    </div>
+  )
+}
+
+// ── Countdown overlay ─────────────────────────────────────────────────────────
+function CountdownOverlay({ count, color }) {
+  const label = count === 0 ? 'GO!' : String(count)
+  const isGo  = count === 0
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#00000066',
+      borderRadius: 10,
+      zIndex: 10,
+    }}>
+      <div style={{
+        fontSize:   isGo ? 80 : 96,
+        fontWeight: 900,
+        color:      isGo ? color : '#fff',
+        fontFamily: 'inherit',
+        textShadow: `0 4px 24px ${isGo ? color : '#000'}`,
+        animation:  'countPop 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+        lineHeight: 1,
+      }}>
+        {label}
+      </div>
     </div>
   )
 }
@@ -114,6 +136,12 @@ export default function Snake({ player, onBack }) {
       setState(data)
       lastDir.current = null
 
+      // Play a tick sound on each countdown number
+      if (data.countdown !== null && data.countdown !== undefined) {
+        if (data.countdown > 0) playSound('place')
+        else                    playSound('rematch')
+      }
+
       if (data.winner && data.winner !== prevWinner.current) {
         if (data.winner === 'draw')      playSound('draw')
         else if (data.winner === player) playSound('win')
@@ -122,13 +150,15 @@ export default function Snake({ player, onBack }) {
       }
       if (!data.winner) prevWinner.current = null
 
-      if (data.message)                       setStatus(data.message)
-      else if (data.connected?.length < 2)    setStatus(`Waiting for ${other}...`)
+      if (data.message)                        setStatus(data.message)
+      else if (data.connected?.length < 2)     setStatus(`Waiting for ${other}...`)
+      else if (data.countdown > 0)             setStatus('Get ready...')
+      else if (data.countdown === 0)           setStatus('GO!')
       else if (data.winner === 'draw')         setStatus("🤝 It's a draw!")
       else if (data.winner === player)         setStatus('🎉 You won the round!')
-      else if (data.winner)                   setStatus(`${data.winner} won the round!`)
-      else if (!data.snakes?.[player]?.alive) setStatus('💀 You crashed! Next round soon...')
-      else                                    setStatus('🕹️ Use the buttons to move!')
+      else if (data.winner)                    setStatus(`${data.winner} won the round!`)
+      else if (!data.snakes?.[player]?.alive)  setStatus('💀 You crashed! Next round soon...')
+      else                                     setStatus('🕹️ Use the buttons to move!')
     }
     ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
     ws.onerror = () => ws.close()
@@ -184,15 +214,24 @@ export default function Snake({ player, onBack }) {
     }
   }, [state])
 
-  const bothHere   = state?.connected?.length === 2
-  const myScore    = state?.scores?.[player]  ?? 0
-  const otherScore = state?.scores?.[other]   ?? 0
+  const bothHere    = state?.connected?.length === 2
+  const myScore     = state?.scores?.[player]  ?? 0
+  const otherScore  = state?.scores?.[other]   ?? 0
+  const countdown   = state?.countdown         ?? null
+  const showCountdown = bothHere && countdown !== null
 
   const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : bothHere ? p.light : '#f1f5f9'
   const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : bothHere ? p.color : '#64748b'
 
   return (
     <div style={{ ...s.wrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
+      <style>{`
+        @keyframes countPop {
+          from { transform: scale(0.4); opacity: 0; }
+          to   { transform: scale(1);   opacity: 1; }
+        }
+      `}</style>
+
       <div style={s.header}>
         <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
         <div style={s.title}>Snake Race 🐍</div>
@@ -225,8 +264,10 @@ export default function Snake({ player, onBack }) {
 
       <div style={{ ...s.status, background: statusBg, color: statusColor }}>{status}</div>
 
-      <div style={s.canvasWrap}>
+      {/* Canvas + countdown overlay */}
+      <div style={{ ...s.canvasWrap, position: 'relative' }}>
         <canvas ref={canvasRef} style={{ borderRadius: 10, display: 'block', maxWidth: '100%' }} />
+        {showCountdown && <CountdownOverlay count={countdown} color={p.color} />}
       </div>
 
       {bothHere && <DPad color={p.color} onDir={sendDir} />}

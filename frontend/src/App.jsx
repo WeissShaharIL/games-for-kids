@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import TicTacToe from './games/TicTacToe'
 import Connect4  from './games/Connect4'
 import Snake     from './games/Snake'
+import Spinner   from './games/Spinner'
 
 const API = '/api'
 
@@ -30,10 +31,11 @@ const PLAYERS = {
 }
 
 const GAMES = [
-  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',   component: TicTacToe, ready: true  },
-  { id: 'connect4',  name: '4 in a Row',  emoji: '🔴', desc: 'Drop discs, connect four!', component: Connect4,  ready: true  },
-  { id: 'snake',     name: 'Snake Race',  emoji: '🐍', desc: 'Two snakes, one apple!',    component: Snake,     ready: true  },
-  { id: 'memory',    name: 'Memory',      emoji: '🃏', desc: 'Flip & match the cards',    component: null,      ready: false },
+  { id: 'tictactoe', name: 'Tic Tac Toe', emoji: '⭕', desc: 'Classic 3×3 board game',     component: TicTacToe, ready: true },
+  { id: 'connect4',  name: '4 in a Row',  emoji: '🔴', desc: 'Drop discs, connect four!',   component: Connect4,  ready: true },
+  { id: 'snake',     name: 'Snake Race',  emoji: '🐍', desc: 'Two snakes, one apple!',      component: Snake,     ready: true },
+  { id: 'spinner',   name: 'Spinner',     emoji: '🎡', desc: 'Tap battle + spin to decide!', component: Spinner,   ready: true },
+  { id: 'memory',    name: 'Memory',      emoji: '🃏', desc: 'Flip & match the cards',      component: null,      ready: false },
 ]
 
 function PinScreen({ onLogin }) {
