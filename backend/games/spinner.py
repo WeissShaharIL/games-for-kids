@@ -2,9 +2,11 @@ import json
 import asyncio
 import random
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import online as registry
 
 router = APIRouter()
 
+GAME_NAME    = "Spinner 🎡"
 TAP_DURATION = 10
 TOTAL_PIECES = 8
 
@@ -40,14 +42,10 @@ class SpinnerGame:
         return self.pick_order[self.current_pick]
 
     def claim(self, player: str, index: int) -> bool:
-        if self.phase != "picking":
-            return False
-        if self.whose_turn() != player:
-            return False
-        if not (0 <= index < TOTAL_PIECES):
-            return False
-        if self.pieces[index] is not None:
-            return False
+        if self.phase != "picking": return False
+        if self.whose_turn() != player: return False
+        if not (0 <= index < TOTAL_PIECES): return False
+        if self.pieces[index] is not None: return False
         self.pieces[index] = player
         self.current_pick += 1
         if self.current_pick >= TOTAL_PIECES:
@@ -55,33 +53,12 @@ class SpinnerGame:
         return True
 
     def spin(self) -> dict:
-        if self.phase != "spinning":
-            return {}
-
-        # Pick winner weighted by slice size
-        winner_idx = random.choices(range(TOTAL_PIECES), weights=self.weights, k=1)[0]
-
-        # The frontend draws slice i starting at:
-        #   angle_rad + cumulative_i * 2π - π/2
-        # where angle_rad is the wheel rotation in radians.
-        #
-        # For the CENTER of winning slice to sit at the TOP (pointer at -π/2):
-        #   angle_rad + cumulative_center_i * 2π - π/2 = -π/2
-        #   angle_rad = -cumulative_center_i * 2π
-        #
-        # In degrees:
-        #   final_angle = -slice_center_fraction * 360
-        #
-        # We add full_spins * 360 so the wheel visually spins multiple times.
-
-        # Cumulative fraction up to start of winner slice
-        cumulative = sum(self.weights[:winner_idx])
-        # Center fraction of winner slice
+        if self.phase != "spinning": return {}
+        winner_idx     = random.choices(range(TOTAL_PIECES), weights=self.weights, k=1)[0]
+        cumulative     = sum(self.weights[:winner_idx])
         center_fraction = cumulative + self.weights[winner_idx] / 2.0
-
-        full_spins  = random.randint(5, 8) * 360
-        final_angle = full_spins - (center_fraction * 360)
-
+        full_spins     = random.randint(5, 8) * 360
+        final_angle    = full_spins - (center_fraction * 360)
         self.spin_angle  = final_angle
         self.spin_result = winner_idx
         self.phase       = "result"
@@ -121,11 +98,9 @@ async def broadcast(message: dict):
 
 async def run_tap_timer():
     for remaining in range(TAP_DURATION, 0, -1):
-        if len(game.connections) < 2:
-            return
+        if len(game.connections) < 2: return
         await broadcast({**game.state(), "tap_remaining": remaining})
         await asyncio.sleep(1)
-
     ariel = game.taps["Ariel"]
     ella  = game.taps["Ella"]
     game.tap_winner = "Ariel" if ariel >= ella else "Ella"
@@ -142,9 +117,12 @@ async def spinner_ws(websocket: WebSocket, player: str):
 
     await websocket.accept()
     game.connections[player] = websocket
+    registry.set_game(player, GAME_NAME)
     await broadcast(game.state())
 
     if len(game.connections) == 2 and game.phase == "waiting":
+        for p in game.connections:
+            registry.clear_game(p)
         game.phase = "tapping"
         await broadcast(game.state())
         if game.timer_task is None or game.timer_task.done():
@@ -154,28 +132,24 @@ async def spinner_ws(websocket: WebSocket, player: str):
         while True:
             raw  = await websocket.receive_text()
             data = json.loads(raw)
-
             if data.get("type") == "tap" and game.phase == "tapping":
                 game.taps[player] += 1
                 await broadcast(game.state())
-
             elif data.get("type") == "claim" and game.phase == "picking":
                 index = data.get("index")
                 if isinstance(index, int) and game.claim(player, index):
                     await broadcast(game.state())
-
             elif data.get("type") == "spin" and game.phase == "spinning":
                 result = game.spin()
                 await broadcast({**game.state(), **result})
-
             elif data.get("type") == "reset":
                 game._reset()
                 if len(game.connections) == 2:
                     game.phase = "tapping"
                     game.timer_task = asyncio.create_task(run_tap_timer())
                 await broadcast(game.state())
-
     except WebSocketDisconnect:
         game.connections.pop(player, None)
+        registry.clear_game(player)
         game._reset()
         await broadcast({**game.state(), "message": f"{player} disconnected."})

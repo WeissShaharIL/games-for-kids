@@ -47,7 +47,10 @@ async def health():
 
 @app.get("/online")
 async def online():
-    return {"online": registry.get_online()}
+    return {
+        "online":  registry.get_online(),
+        "waiting": registry.get_status(),   # {player: game_name}
+    }
 
 app.include_router(tictactoe_router, prefix="/tictactoe")
 app.include_router(connect4_router,  prefix="/connect4")

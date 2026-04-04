@@ -2,9 +2,11 @@ import json
 import random
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import online as registry
 
 router = APIRouter()
 
+GAME_NAME = "Snake Race 🐍"
 ROWS      = 20
 COLS      = 20
 TICK_RATE = 0.12
@@ -15,7 +17,6 @@ DIRS = {
     "LEFT":  ( 0, -1),
     "RIGHT": ( 0,  1),
 }
-
 OPPOSITE = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
 
 
@@ -61,22 +62,17 @@ class SnakeGame:
     def tick(self) -> bool:
         if self.winner:
             return False
-
         ate_apple = False
-
         for player, snake in self.snakes.items():
             if not snake["alive"]:
                 continue
             dr, dc   = DIRS[snake["dir"]]
             head     = snake["body"][0]
             new_head = (head[0] + dr, head[1] + dc)
-
             if not (0 <= new_head[0] < ROWS and 0 <= new_head[1] < COLS):
                 snake["alive"] = False
                 continue
-
             snake["body"].insert(0, new_head)
-
             if tuple(new_head) == tuple(self.apple):
                 ate_apple = True
                 self.scores[player] += 1
@@ -84,7 +80,6 @@ class SnakeGame:
                 snake["body"].pop()
 
         all_bodies = {p: set(map(tuple, s["body"])) for p, s in self.snakes.items() if s["alive"]}
-
         for player, snake in self.snakes.items():
             if not snake["alive"]:
                 continue
@@ -112,7 +107,6 @@ class SnakeGame:
             self.winner = alive[0]
             self.scores[alive[0]] += 1
             return False
-
         return True
 
     def state(self) -> dict:
@@ -129,7 +123,6 @@ class SnakeGame:
         }
 
     def stop_loop(self):
-        """Cancel the game loop task if running."""
         if self.loop_task and not self.loop_task.done():
             self.loop_task.cancel()
             self.loop_task = None
@@ -153,7 +146,6 @@ async def broadcast(message: dict):
 
 
 async def game_loop():
-    # Countdown
     for n in [3, 2, 1]:
         if len(game.connections) < 2:
             game.countdown = None
@@ -167,26 +159,23 @@ async def game_loop():
     await asyncio.sleep(0.1)
     game.countdown = None
 
-    # Tick loop
+    # Clear waiting status once game starts
+    for p in game.connections:
+        registry.clear_game(p)
+
     while True:
         await asyncio.sleep(TICK_RATE)
-
-        # Stop if someone left
         if len(game.connections) < 2:
             game._reset_board()
             await broadcast(game.state())
             return
-
         running = game.tick()
         await broadcast(game.state())
-
         if not running:
             await asyncio.sleep(2.5)
-            # Only restart if BOTH players still connected
             if len(game.connections) == 2:
                 game.new_round()
                 await broadcast(game.state())
-                # Restart loop with fresh countdown
                 game.loop_task = asyncio.create_task(game_loop())
             return
 
@@ -198,15 +187,12 @@ async def snake_ws(websocket: WebSocket, player: str):
         return
 
     await websocket.accept()
-
-    # Stop any existing loop before resetting
     game.stop_loop()
     game.connections[player] = websocket
     game._reset_board()
-
+    registry.set_game(player, GAME_NAME)
     await broadcast(game.state())
 
-    # Start game loop only when both are connected
     if len(game.connections) == 2:
         game.loop_task = asyncio.create_task(game_loop())
 
@@ -217,19 +203,11 @@ async def snake_ws(websocket: WebSocket, player: str):
             if data.get("type") == "dir":
                 if game.countdown is None:
                     game.set_dir(player, data.get("dir", ""))
-
     except WebSocketDisconnect:
         game.connections.pop(player, None)
-
-        # Always stop the loop when anyone disconnects
         game.stop_loop()
         game._reset_board()
-
-        # Scores persist across rounds but reset on full disconnect
+        registry.clear_game(player)
         if len(game.connections) == 0:
             game.scores = {"Ariel": 0, "Ella": 0}
-
-        await broadcast({
-            **game.state(),
-            "message": f"{player} disconnected. Waiting...",
-        })
+        await broadcast({**game.state(), "message": f"{player} disconnected. Waiting..."})

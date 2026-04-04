@@ -1,225 +1,285 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/lego/ws`
 
-const GRID    = 20   // grid snap size in px
-const STUD_R  = 4    // stud circle radius
+// ── Isometric constants ───────────────────────────────────────────────────────
+const GRID     = 1           // 1 logical unit per stud
+const TILE_W   = 36          // width of one iso tile (pixels)
+const TILE_H   = 18          // height of one iso tile (pixels)
+const BRICK_H  = 22          // height of brick body in pixels
+const STUD_H   = 5           // height of stud cylinder
+const STUD_R   = 6           // radius of stud
+
+const BOARD_COLS = 16
+const BOARD_ROWS = 16
 
 const PLAYERS = {
   Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
   Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
 }
 
-// Brick sizes in grid units [w, h]
 const BRICK_SIZES = [
-  [1, 1], [2, 1], [3, 1], [4, 1],
-  [2, 2], [3, 2], [4, 2],
+  [1,1], [2,1], [3,1], [4,1],
+  [2,2], [3,2], [4,2],
 ]
 
-// Brick colors
 const BRICK_COLORS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#3b82f6', // blue
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#ffffff', // white
-  '#1e293b', // black
-  '#94a3b8', // gray
+  { hex: '#e53e3e', name: 'Red'    },
+  { hex: '#dd6b20', name: 'Orange' },
+  { hex: '#d69e2e', name: 'Yellow' },
+  { hex: '#38a169', name: 'Green'  },
+  { hex: '#3182ce', name: 'Blue'   },
+  { hex: '#805ad5', name: 'Purple' },
+  { hex: '#d53f8c', name: 'Pink'   },
+  { hex: '#f7fafc', name: 'White'  },
+  { hex: '#1a202c', name: 'Black'  },
+  { hex: '#718096', name: 'Gray'   },
 ]
 
-function snap(val) {
-  return Math.round(val / GRID) * GRID
+// ── Color utils ───────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const c = hex.replace('#','')
+  const n = parseInt(c.length===3 ? c.split('').map(x=>x+x).join('') : c, 16)
+  return [(n>>16)&255, (n>>8)&255, n&255]
+}
+function rgbToHex(r,g,b) {
+  return '#'+[r,g,b].map(v=>Math.min(255,Math.max(0,Math.round(v))).toString(16).padStart(2,'0')).join('')
+}
+function shade(hex, amt) {
+  const [r,g,b] = hexToRgb(hex)
+  return rgbToHex(r+amt, g+amt, b+amt)
 }
 
-// Draw a single LEGO brick on canvas
-function drawBrick(ctx, b, selected = false, scale = 1) {
-  const { x, y, w, h, color, rotation = 0 } = b
-  const pw = w * GRID * scale
-  const ph = h * GRID * scale
+// ── Isometric projection ──────────────────────────────────────────────────────
+// Convert grid coords (col, row) to screen (px, py)
+function isoProject(col, row, originX, originY) {
+  const px = originX + (col - row) * (TILE_W / 2)
+  const py = originY + (col + row) * (TILE_H / 2)
+  return { px, py }
+}
 
-  ctx.save()
-  ctx.translate(x * scale, y * scale)
+// Convert screen (sx, sy) back to nearest grid cell
+function isoUnproject(sx, sy, originX, originY) {
+  const dx = sx - originX
+  const dy = sy - originY
+  const col = (dx / (TILE_W/2) + dy / (TILE_H/2)) / 2
+  const row = (dy / (TILE_H/2) - dx / (TILE_W/2)) / 2
+  return { col: Math.round(col), row: Math.round(row) }
+}
 
-  // Rotation around brick center
-  if (rotation !== 0) {
-    ctx.translate(pw / 2, ph / 2)
-    ctx.rotate((rotation * Math.PI) / 180)
-    ctx.translate(-pw / 2, -ph / 2)
+// ── Draw a single iso brick ───────────────────────────────────────────────────
+function drawIsoBrick(ctx, col, row, w, h, color, originX, originY, highlight = false) {
+  // Draw from back to front for each cell of the brick
+  // Top face corners (in grid space):
+  // TL=(col,row), TR=(col+w,row), BR=(col+w,row+h), BL=(col,row+h)
+
+  const topColor   = shade(color,  30)
+  const leftColor  = shade(color, -40)
+  const rightColor = shade(color, -20)
+  const studColor  = shade(color,  15)
+
+  // ── Left face ─────────────────────────────────────────────────────────────
+  // Bottom-left side of brick (row direction)
+  {
+    const TL = isoProject(col,   row+h, originX, originY)
+    const TR = isoProject(col+w, row+h, originX, originY)
+    ctx.beginPath()
+    ctx.moveTo(TL.px, TL.py)
+    ctx.lineTo(TR.px, TR.py)
+    ctx.lineTo(TR.px, TR.py + BRICK_H)
+    ctx.lineTo(TL.px, TL.py + BRICK_H)
+    ctx.closePath()
+    ctx.fillStyle = leftColor
+    ctx.fill()
+    ctx.strokeStyle = shade(color, -60)
+    ctx.lineWidth   = 0.8
+    ctx.stroke()
   }
 
-  // Shadow
-  ctx.shadowColor = '#0003'
-  ctx.shadowBlur  = selected ? 12 : 4
-  ctx.shadowOffsetY = selected ? 4 : 2
+  // ── Right face ────────────────────────────────────────────────────────────
+  // Right side of brick (col direction)
+  {
+    const TL = isoProject(col+w, row,   originX, originY)
+    const TR = isoProject(col+w, row+h, originX, originY)
+    ctx.beginPath()
+    ctx.moveTo(TL.px, TL.py)
+    ctx.lineTo(TR.px, TR.py)
+    ctx.lineTo(TR.px, TR.py + BRICK_H)
+    ctx.lineTo(TL.px, TL.py + BRICK_H)
+    ctx.closePath()
+    ctx.fillStyle = rightColor
+    ctx.fill()
+    ctx.strokeStyle = shade(color, -60)
+    ctx.lineWidth   = 0.8
+    ctx.stroke()
+  }
 
-  // Main body
-  const grad = ctx.createLinearGradient(0, 0, pw, ph)
-  grad.addColorStop(0, lighten(color, 30))
-  grad.addColorStop(1, darken(color, 20))
-  ctx.fillStyle = grad
-  ctx.beginPath()
-  ctx.roundRect(0, 0, pw, ph, 4 * scale)
-  ctx.fill()
+  // ── Top face ──────────────────────────────────────────────────────────────
+  {
+    const TL = isoProject(col,   row,   originX, originY)
+    const TR = isoProject(col+w, row,   originX, originY)
+    const BR = isoProject(col+w, row+h, originX, originY)
+    const BL = isoProject(col,   row+h, originX, originY)
 
-  // Border
-  ctx.shadowColor = 'transparent'
-  ctx.strokeStyle = selected ? '#fff' : darken(color, 30)
-  ctx.lineWidth   = selected ? 2.5 * scale : 1.5 * scale
-  ctx.beginPath()
-  ctx.roundRect(0, 0, pw, ph, 4 * scale)
-  ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(TL.px, TL.py)
+    ctx.lineTo(TR.px, TR.py)
+    ctx.lineTo(BR.px, BR.py)
+    ctx.lineTo(BL.px, BL.py)
+    ctx.closePath()
+    ctx.fillStyle = topColor
+    ctx.fill()
 
-  // Studs
-  const studColor = lighten(color, 20)
-  const studW = rotation === 90 || rotation === 270 ? h : w
-  const studH = rotation === 90 || rotation === 270 ? w : h
-  for (let sy = 0; sy < h; sy++) {
-    for (let sx = 0; sx < w; sx++) {
-      const cx = (sx + 0.5) * GRID * scale
-      const cy = (sy + 0.5) * GRID * scale
-      const r  = STUD_R * scale
+    if (highlight) {
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth   = 2
+    } else {
+      ctx.strokeStyle = shade(color, -60)
+      ctx.lineWidth   = 0.8
+    }
+    ctx.stroke()
+  }
 
-      // Stud body
+  // ── Studs ─────────────────────────────────────────────────────────────────
+  for (let sc = 0; sc < w; sc++) {
+    for (let sr2 = 0; sr2 < h; sr2++) {
+      const center = isoProject(col + sc + 0.5, row + sr2 + 0.5, originX, originY)
+      const cx     = center.px
+      const cy     = center.py
+
+      // Stud side (left face of cylinder)
       ctx.beginPath()
-      ctx.arc(cx, cy, r, 0, Math.PI * 2)
+      ctx.ellipse(cx, cy + STUD_H, STUD_R * 0.5, STUD_H * 0.4, 0, 0, Math.PI)
+      ctx.fillStyle = shade(color, -30)
+      ctx.fill()
+
+      // Stud top ellipse
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, STUD_R * 0.8, STUD_R * 0.4, 0, 0, Math.PI * 2)
       ctx.fillStyle = studColor
       ctx.fill()
-      ctx.strokeStyle = darken(color, 25)
-      ctx.lineWidth   = 0.8 * scale
+      ctx.strokeStyle = shade(color, -40)
+      ctx.lineWidth   = 0.6
       ctx.stroke()
 
-      // Stud shine
+      // Shine
       ctx.beginPath()
-      ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.35, 0, Math.PI * 2)
-      ctx.fillStyle = '#ffffff55'
+      ctx.ellipse(cx - STUD_R*0.25, cy - STUD_R*0.1, STUD_R*0.25, STUD_R*0.1, -0.4, 0, Math.PI*2)
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'
       ctx.fill()
     }
   }
-
-  ctx.restore()
 }
 
-function lighten(hex, amt) {
-  return adjustColor(hex, amt)
-}
-function darken(hex, amt) {
-  return adjustColor(hex, -amt)
-}
-function adjustColor(hex, amt) {
-  const c = hex.replace('#', '')
-  const num = parseInt(c.length === 3
-    ? c.split('').map(x => x + x).join('') : c, 16)
-  const r = Math.min(255, Math.max(0, (num >> 16) + amt))
-  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt))
-  const b = Math.min(255, Math.max(0, (num & 0xff) + amt))
-  return `rgb(${r},${g},${b})`
+// ── Draw isometric baseplate grid ─────────────────────────────────────────────
+function drawBaseplate(ctx, originX, originY) {
+  for (let c = 0; c < BOARD_COLS; c++) {
+    for (let r = 0; r < BOARD_ROWS; r++) {
+      const TL = isoProject(c,   r,   originX, originY)
+      const TR = isoProject(c+1, r,   originX, originY)
+      const BR = isoProject(c+1, r+1, originX, originY)
+      const BL = isoProject(c,   r+1, originX, originY)
+
+      // Alternating tile colors
+      const even = (c + r) % 2 === 0
+      ctx.beginPath()
+      ctx.moveTo(TL.px, TL.py)
+      ctx.lineTo(TR.px, TR.py)
+      ctx.lineTo(BR.px, BR.py)
+      ctx.lineTo(BL.px, BL.py)
+      ctx.closePath()
+      ctx.fillStyle   = even ? '#4a7c59' : '#3d6b4a'
+      ctx.fill()
+      ctx.strokeStyle = '#35603f'
+      ctx.lineWidth   = 0.5
+      ctx.stroke()
+    }
+  }
 }
 
-// ── Brick Palette ─────────────────────────────────────────────────────────────
+// ── Ghost brick (semi-transparent placement preview) ──────────────────────────
+function drawGhostBrick(ctx, col, row, w, h, color, originX, originY) {
+  ctx.globalAlpha = 0.45
+  drawIsoBrick(ctx, col, row, w, h, color, originX, originY, false)
+  ctx.globalAlpha = 1
+}
+
+// ── Sort bricks back-to-front for painter's algorithm ─────────────────────────
+function sortBricks(bricks) {
+  return [...bricks].sort((a, b) => (a.col + a.row) - (b.col + b.row))
+}
+
+// ── Palette component ─────────────────────────────────────────────────────────
 function Palette({ selectedColor, selectedSize, onColorChange, onSizeChange, onClear }) {
   return (
-    <div style={ps.wrap}>
-      {/* Colors */}
-      <div style={ps.section}>
-        <div style={ps.label}>COLOR</div>
-        <div style={ps.colorGrid}>
-          {BRICK_COLORS.map(c => (
-            <div
-              key={c}
-              onClick={() => onColorChange(c)}
-              style={{
-                width: 28, height: 28, borderRadius: 6,
-                background: c,
-                border: selectedColor === c ? '3px solid #6366f1' : '2px solid #e2e8f0',
-                cursor: 'pointer',
-                boxShadow: selectedColor === c ? '0 0 0 2px #6366f155' : 'none',
-                transition: 'all 0.1s',
-              }}
-            />
-          ))}
-        </div>
+    <div style={{ display:'flex', flexDirection:'column', gap:10, padding:'10px 6px', background:'#fff', borderRight:'1px solid #e2e8f0', overflowY:'auto', minWidth:72, alignItems:'center' }}>
+      <div style={{ fontSize:9, fontWeight:900, color:'#94a3b8', letterSpacing:1 }}>COLOR</div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:3 }}>
+        {BRICK_COLORS.map(c => (
+          <div key={c.hex} onClick={() => onColorChange(c.hex)} style={{ width:26, height:26, borderRadius:5, background:c.hex, border: selectedColor===c.hex ? '3px solid #6366f1':'2px solid #e2e8f0', cursor:'pointer', boxShadow: selectedColor===c.hex ? '0 0 0 2px #6366f155':'none' }} />
+        ))}
       </div>
 
-      {/* Sizes */}
-      <div style={ps.section}>
-        <div style={ps.label}>SIZE</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {BRICK_SIZES.map(([w, h]) => {
-            const sel = selectedSize[0] === w && selectedSize[1] === h
-            return (
-              <div
-                key={`${w}x${h}`}
-                onClick={() => onSizeChange([w, h])}
-                style={{
-                  padding: '4px 8px', borderRadius: 8, cursor: 'pointer',
-                  background: sel ? '#6366f122' : 'transparent',
-                  border: `1.5px solid ${sel ? '#6366f1' : '#e2e8f0'}`,
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  transition: 'all 0.1s',
-                }}
-              >
-                {/* Mini brick preview */}
-                <div style={{ display: 'flex', gap: 1 }}>
-                  {Array(w).fill(null).map((_, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      {Array(h).fill(null).map((_, j) => (
-                        <div key={j} style={{ width: 8, height: 8, borderRadius: 2, background: sel ? '#6366f1' : '#94a3b8' }} />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: sel ? '#6366f1' : '#64748b' }}>{w}×{h}</span>
+      <div style={{ fontSize:9, fontWeight:900, color:'#94a3b8', letterSpacing:1, marginTop:4 }}>SIZE</div>
+      <div style={{ display:'flex', flexDirection:'column', gap:3, width:'100%' }}>
+        {BRICK_SIZES.map(([w,h]) => {
+          const sel = selectedSize[0]===w && selectedSize[1]===h
+          return (
+            <div key={`${w}x${h}`} onClick={() => onSizeChange([w,h])} style={{ padding:'3px 4px', borderRadius:6, cursor:'pointer', background: sel?'#6366f122':'transparent', border:`1.5px solid ${sel?'#6366f1':'#e2e8f0'}`, display:'flex', alignItems:'center', gap:4, justifyContent:'center' }}>
+              <div style={{ display:'flex', gap:1 }}>
+                {Array(w).fill(null).map((_,i) => (
+                  <div key={i} style={{ display:'flex', flexDirection:'column', gap:1 }}>
+                    {Array(h).fill(null).map((_,j) => (
+                      <div key={j} style={{ width:6, height:6, borderRadius:1, background: sel?'#6366f1':'#94a3b8' }} />
+                    ))}
+                  </div>
+                ))}
               </div>
-            )
-          })}
-        </div>
+              <span style={{ fontSize:9, fontWeight:700, color: sel?'#6366f1':'#64748b' }}>{w}×{h}</span>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Clear */}
-      <button
-        onClick={onClear}
-        style={{ marginTop: 8, padding: '8px', borderRadius: 10, border: '1.5px solid #fca5a5', background: '#fff1f2', color: '#ef4444', fontWeight: 800, fontSize: 12, cursor: 'pointer', width: '100%' }}
-      >
-        🗑️ Clear All
+      <button onClick={onClear} style={{ marginTop:6, padding:'6px 4px', borderRadius:8, border:'1.5px solid #fca5a5', background:'#fff1f2', color:'#ef4444', fontWeight:800, fontSize:11, cursor:'pointer', width:'100%' }}>
+        🗑️ Clear
       </button>
     </div>
   )
 }
 
-const ps = {
-  wrap:      { display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 8px', background: '#fff', borderRight: '1px solid #e2e8f0', overflowY: 'auto', minWidth: 80, maxWidth: 90 },
-  section:   { display: 'flex', flexDirection: 'column', gap: 6 },
-  label:     { fontSize: 9, fontWeight: 900, color: '#94a3b8', letterSpacing: 1 },
-  colorGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 },
-}
-
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function Lego({ player, onBack }) {
-  const [bricks, setBricks]           = useState([])
-  const [status, setStatus]           = useState('Connecting...')
-  const [selectedColor, setColor]     = useState('#ef4444')
-  const [selectedSize, setSize]       = useState([2, 1])
-  const [selectedId, setSelectedId]   = useState(null)
-  const [dragging, setDragging]       = useState(null)  // {type: 'new'|'existing', ...}
-  const [ghostPos, setGhostPos]       = useState(null)  // {x, y} for ghost brick
+  const [bricks, setBricks]         = useState([])
+  const [status, setStatus]         = useState('Connecting...')
+  const [selectedColor, setColor]   = useState('#e53e3e')
+  const [selectedSize, setSize]     = useState([2,1])
+  const [selectedId, setSelectedId] = useState(null)
+  const [ghostCell, setGhostCell]   = useState(null)  // {col, row}
 
-  const canvasRef  = useRef(null)
-  const wsRef      = useRef(null)
-  const mountedRef = useRef(true)
-  const bricksRef  = useRef([])
+  const canvasRef    = useRef(null)
+  const wsRef        = useRef(null)
+  const mountedRef   = useRef(true)
+  const bricksRef    = useRef([])
+  const originRef    = useRef({ x: 0, y: 0 })
 
   useEffect(() => { bricksRef.current = bricks }, [bricks])
 
   const p     = PLAYERS[player]
   const other = player === 'Ariel' ? 'Ella' : 'Ariel'
 
-  // ── WebSocket ───────────────────────────────────────────────────────────────
+  // ── Compute canvas origin (center-top of board) ───────────────────────────
+  const computeOrigin = (canvas) => {
+    const boardPixelW = (BOARD_COLS + BOARD_ROWS) * (TILE_W / 2)
+    const ox = canvas.width / 2
+    const oy = 40
+    return { x: ox, y: oy }
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -232,211 +292,177 @@ export default function Lego({ player, onBack }) {
       if (data.bricks !== undefined) setBricks(data.bricks)
       if (data.message) setStatus(data.message)
       else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
-      else setStatus('Building together! 🧱')
+      else setStatus('🧱 Building together!')
     }
     ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
     ws.onerror = () => ws.close()
-
     return () => { mountedRef.current = false; ws.close() }
   }, [player])
 
-  // ── Canvas render ───────────────────────────────────────────────────────────
+  // ── Canvas render ─────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-    const W   = canvas.width
-    const H   = canvas.height
 
-    ctx.clearRect(0, 0, W, H)
+    const origin = computeOrigin(canvas)
+    originRef.current = origin
+    const { x: ox, y: oy } = origin
 
-    // Background — baseplate green
-    ctx.fillStyle = '#4a7c59'
-    ctx.fillRect(0, 0, W, H)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Grid dots
-    ctx.fillStyle = '#3d6b4a'
-    for (let gx = GRID / 2; gx < W; gx += GRID) {
-      for (let gy = GRID / 2; gy < H; gy += GRID) {
-        ctx.beginPath()
-        ctx.arc(gx, gy, 2, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    }
+    // Sky/background
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height)
+    bgGrad.addColorStop(0, '#e0f2fe')
+    bgGrad.addColorStop(1, '#bae6fd')
+    ctx.fillStyle = bgGrad
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Draw all placed bricks
-    bricks.forEach(b => {
-      drawBrick(ctx, b, b.id === selectedId)
+    // Baseplate
+    drawBaseplate(ctx, ox, oy)
+
+    // Bricks sorted back-to-front
+    const sorted = sortBricks(bricks)
+    sorted.forEach(b => {
+      drawIsoBrick(ctx, b.col, b.row, b.w, b.h, b.color, ox, oy, b.id === selectedId)
     })
 
-    // Ghost brick while dragging
-    if (ghostPos && dragging) {
-      const [gw, gh] = dragging.type === 'new' ? selectedSize : [dragging.w, dragging.h]
-      ctx.globalAlpha = 0.5
-      drawBrick(ctx, { x: ghostPos.x, y: ghostPos.y, w: gw, h: gh, color: dragging.type === 'new' ? selectedColor : dragging.color, rotation: dragging.rotation || 0 })
-      ctx.globalAlpha = 1
+    // Ghost brick
+    if (ghostCell) {
+      const [sw, sh] = selectedSize
+      // Clamp to board
+      const gc = Math.max(0, Math.min(BOARD_COLS - sw, ghostCell.col))
+      const gr = Math.max(0, Math.min(BOARD_ROWS - sh, ghostCell.row))
+      drawGhostBrick(ctx, gc, gr, sw, sh, selectedColor, ox, oy)
     }
-  }, [bricks, selectedId, ghostPos, dragging, selectedColor, selectedSize])
 
-  // ── Canvas hit test ─────────────────────────────────────────────────────────
-  const getBrickAt = (x, y) => {
-    // Check in reverse order (top brick first)
+  }, [bricks, selectedId, ghostCell, selectedColor, selectedSize])
+
+  // ── Pointer → grid cell ───────────────────────────────────────────────────
+  const getCell = (e) => {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+    const rect    = canvas.getBoundingClientRect()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    const sx = (clientX - rect.left) * (canvas.width / rect.width)
+    const sy = (clientY - rect.top)  * (canvas.height / rect.height)
+    const { x: ox, y: oy } = originRef.current
+    const { col, row } = isoUnproject(sx, sy, ox, oy)
+    return { col, row }
+  }
+
+  // Find brick at grid cell
+  const getBrickAtCell = (col, row) => {
     for (let i = bricksRef.current.length - 1; i >= 0; i--) {
-      const b   = bricksRef.current[i]
-      const bx  = b.x
-      const by  = b.y
-      const bw  = b.w * GRID
-      const bh  = b.h * GRID
-      if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+      const b = bricksRef.current[i]
+      if (col >= b.col && col < b.col + b.w && row >= b.row && row < b.row + b.h) {
         return b
       }
     }
     return null
   }
 
-  const getCanvasPos = (e) => {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    const rect = canvas.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-    }
-  }
-
-  // ── Canvas interactions ─────────────────────────────────────────────────────
-  const onCanvasPointerDown = (e) => {
+  // ── Interaction handlers ──────────────────────────────────────────────────
+  const onPointerDown = (e) => {
     e.preventDefault()
-    const { x, y } = getCanvasPos(e)
-    const hit = getBrickAt(x, y)
+    const cell = getCell(e)
+    if (!cell) return
+
+    const hit = getBrickAtCell(cell.col, cell.row)
     if (hit) {
       setSelectedId(hit.id)
-      setDragging({ type: 'existing', id: hit.id, w: hit.w, h: hit.h, color: hit.color, rotation: hit.rotation || 0, startX: x, startY: y, origX: hit.x, origY: hit.y })
+      setGhostCell(null)
     } else {
       setSelectedId(null)
-      setDragging({ type: 'new', startX: x, startY: y })
-      setGhostPos({ x: snap(x - (selectedSize[0] * GRID) / 2), y: snap(y - (selectedSize[1] * GRID) / 2) })
+      const [sw, sh] = selectedSize
+      const gc = Math.max(0, Math.min(BOARD_COLS - sw, cell.col - Math.floor(sw/2)))
+      const gr = Math.max(0, Math.min(BOARD_ROWS - sh, cell.row - Math.floor(sh/2)))
+      setGhostCell({ col: gc, row: gr })
     }
   }
 
-  const onCanvasPointerMove = (e) => {
-    if (!dragging) return
+  const onPointerMove = (e) => {
     e.preventDefault()
-    const { x, y } = getCanvasPos(e)
-
-    if (dragging.type === 'new') {
-      setGhostPos({ x: snap(x - (selectedSize[0] * GRID) / 2), y: snap(y - (selectedSize[1] * GRID) / 2) })
-    } else {
-      const dx   = x - dragging.startX
-      const dy   = y - dragging.startY
-      const newX = snap(dragging.origX + dx)
-      const newY = snap(dragging.origY + dy)
-      setGhostPos({ x: newX, y: newY })
-    }
+    if (selectedId !== null) return  // don't show ghost when brick selected
+    const cell = getCell(e)
+    if (!cell) return
+    const [sw, sh] = selectedSize
+    const gc = Math.max(0, Math.min(BOARD_COLS - sw, cell.col - Math.floor(sw/2)))
+    const gr = Math.max(0, Math.min(BOARD_ROWS - sh, cell.row - Math.floor(sh/2)))
+    setGhostCell({ col: gc, row: gr })
   }
 
-  const onCanvasPointerUp = (e) => {
-    if (!dragging) return
-    const { x, y } = getCanvasPos(e)
-
-    if (dragging.type === 'new' && ghostPos) {
-      // Place new brick
-      wsRef.current?.send(JSON.stringify({
-        type: 'add',
-        x: ghostPos.x, y: ghostPos.y,
-        w: selectedSize[0], h: selectedSize[1],
-        color: selectedColor, rotation: 0,
-      }))
-      playSound('place')
-      vibrate(VIBRATIONS.tap)
-    } else if (dragging.type === 'existing' && ghostPos) {
-      // Move existing brick
-      wsRef.current?.send(JSON.stringify({
-        type: 'move', id: dragging.id,
-        x: ghostPos.x, y: ghostPos.y,
-      }))
-    }
-
-    setDragging(null)
-    setGhostPos(null)
-  }
-
-  const rotateBrick = () => {
-    if (selectedId === null) return
+  const onPointerUp = (e) => {
+    e.preventDefault()
+    if (!ghostCell || selectedId !== null) return
+    const [sw, sh] = selectedSize
+    const gc = Math.max(0, Math.min(BOARD_COLS - sw, ghostCell.col))
+    const gr = Math.max(0, Math.min(BOARD_ROWS - sh, ghostCell.row))
+    wsRef.current?.send(JSON.stringify({
+      type: 'add', col: gc, row: gr, w: sw, h: sh, color: selectedColor,
+    }))
     playSound('place')
-    wsRef.current?.send(JSON.stringify({ type: 'rotate', id: selectedId }))
+    vibrate(VIBRATIONS.tap)
+    setGhostCell(null)
   }
 
   const deleteBrick = () => {
     if (selectedId === null) return
-    playSound('error')
-    vibrate(30)
     wsRef.current?.send(JSON.stringify({ type: 'delete', id: selectedId }))
+    playSound('error'); vibrate(30)
     setSelectedId(null)
   }
 
   const clearAll = () => {
     wsRef.current?.send(JSON.stringify({ type: 'clear' }))
     setSelectedId(null)
+    setGhostCell(null)
   }
 
-  const canvasSize = Math.min(window.innerWidth - 90, 520)
+  const canvasW = Math.min(window.innerWidth - 72, 560)
+  const canvasH = Math.round(canvasW * 0.85)
 
   return (
-    <div style={{ minHeight: '100vh', background: p.bg, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight:'100vh', background: p.bg, display:'flex', flexDirection:'column' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', color: p.color, fontFamily: 'inherit' }}>← Back</button>
-        <div style={{ fontWeight: 900, color: '#1e1b4b', fontSize: 16 }}>🧱 LEGO Builder</div>
-        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>{status}</div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 16px', background:'#ffffffcc', backdropFilter:'blur(8px)', boxShadow:'0 1px 0 #e2e8f0' }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', fontSize:15, fontWeight:700, cursor:'pointer', color:p.color, fontFamily:'inherit' }}>← Back</button>
+        <div style={{ fontWeight:900, color:'#1e1b4b', fontSize:16 }}>🧱 LEGO Builder</div>
+        <div style={{ fontSize:11, color:'#94a3b8', fontWeight:700 }}>{bricks.length} bricks</div>
       </div>
 
-      {/* Selected brick toolbar */}
+      {/* Status */}
+      <div style={{ padding:'6px 16px', background:'#f8fafc', borderBottom:'1px solid #e2e8f0', textAlign:'center', fontSize:12, color:'#64748b', fontWeight:700 }}>
+        {status}
+      </div>
+
+      {/* Selected toolbar */}
       {selectedId !== null && (
-        <div style={{ display: 'flex', gap: 8, padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', justifyContent: 'center' }}>
-          <button onClick={rotateBrick} style={{ padding: '6px 16px', borderRadius: 10, border: '1.5px solid #6366f1', background: '#6366f111', color: '#6366f1', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            🔄 Rotate
-          </button>
-          <button onClick={deleteBrick} style={{ padding: '6px 16px', borderRadius: 10, border: '1.5px solid #ef4444', background: '#fff1f2', color: '#ef4444', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            🗑️ Delete
-          </button>
-          <button onClick={() => setSelectedId(null)} style={{ padding: '6px 16px', borderRadius: 10, border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            ✕ Deselect
-          </button>
+        <div style={{ display:'flex', gap:8, padding:'8px 16px', background:'#f0f9ff', borderBottom:'1px solid #bae6fd', justifyContent:'center' }}>
+          <button onClick={deleteBrick} style={{ padding:'6px 16px', borderRadius:10, border:'1.5px solid #ef4444', background:'#fff1f2', color:'#ef4444', fontWeight:800, fontSize:13, cursor:'pointer' }}>🗑️ Delete</button>
+          <button onClick={() => setSelectedId(null)} style={{ padding:'6px 16px', borderRadius:10, border:'1.5px solid #e2e8f0', background:'#fff', color:'#64748b', fontWeight:800, fontSize:13, cursor:'pointer' }}>✕ Deselect</button>
         </div>
       )}
 
-      {/* Main area */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Palette */}
-        <Palette
-          selectedColor={selectedColor}
-          selectedSize={selectedSize}
-          onColorChange={setColor}
-          onSizeChange={setSize}
-          onClear={clearAll}
-        />
-
-        {/* Canvas */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 8, overflowY: 'auto' }}>
+      {/* Main */}
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+        <Palette selectedColor={selectedColor} selectedSize={selectedSize} onColorChange={setColor} onSizeChange={setSize} onClear={clearAll} />
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', alignItems:'center', padding:8, gap:8 }}>
           <canvas
             ref={canvasRef}
-            width={canvasSize}
-            height={canvasSize}
-            style={{ display: 'block', borderRadius: 12, boxShadow: '0 8px 32px #0003', touchAction: 'none', cursor: 'crosshair' }}
-            onPointerDown={onCanvasPointerDown}
-            onPointerMove={onCanvasPointerMove}
-            onPointerUp={onCanvasPointerUp}
-            onPointerLeave={onCanvasPointerUp}
+            width={canvasW}
+            height={canvasH}
+            style={{ display:'block', borderRadius:12, boxShadow:'0 8px 32px #0003', touchAction:'none', cursor:'crosshair' }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerLeave={() => setGhostCell(null)}
           />
+          <div style={{ fontSize:11, color:'#94a3b8', fontWeight:700, textAlign:'center', paddingBottom:8 }}>
+            Tap to place • Tap a brick to select it • {bricks.length} bricks
+          </div>
         </div>
-      </div>
-
-      {/* Footer hint */}
-      <div style={{ padding: '8px', background: '#ffffffcc', borderTop: '1px solid #e2e8f0', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-        Tap canvas to place • Tap brick to select • {bricks.length} bricks placed
       </div>
     </div>
   )

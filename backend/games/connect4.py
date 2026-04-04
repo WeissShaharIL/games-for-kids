@@ -1,108 +1,84 @@
 import json
+import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import online as registry
 
 router = APIRouter()
 
-ROWS = 6
-COLS = 7
+GAME_NAME = "Tic Tac Toe ⭕"
 
-class Connect4Game:
+class TicTacToeGame:
     def __init__(self):
-        self.board        = [[""]*COLS for _ in range(ROWS)]  # board[row][col]
+        self.connections: dict[str, WebSocket] = {}
+        self.board        = [''] * 9
+        self.symbols      = {}
         self.current_turn = None
         self.winner       = None
-        self.last_first   = None
         self.scores       = {"Ariel": 0, "Ella": 0}
-        self.connections: dict[str, WebSocket] = {}
+        self.first_player = None
 
-    def reset(self, first_player: str):
-        self.board        = [[""]*COLS for _ in range(ROWS)]
-        self.current_turn = first_player
+    def reset(self):
+        self.board        = [''] * 9
         self.winner       = None
-        self.last_first   = first_player
+        if self.first_player:
+            other = "Ella" if self.first_player == "Ariel" else "Ariel"
+            self.first_player = other
+            self.current_turn = other
 
-    def next_first(self) -> str:
-        if self.last_first is None:
-            return "Ariel"
-        return "Ella" if self.last_first == "Ariel" else "Ariel"
-
-    def symbol_for(self, player: str) -> str:
-        return "X" if self.last_first == player else "O"
-
-    def drop(self, col: int, symbol: str) -> int | None:
-        """Drop a disc in col, return the row it landed on, or None if full."""
-        for row in range(ROWS - 1, -1, -1):
-            if self.board[row][col] == "":
-                self.board[row][col] = symbol
-                return row
+    def check_winner(self):
+        b = self.board
+        lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
+        for line in lines:
+            if b[line[0]] and b[line[0]] == b[line[1]] == b[line[2]]:
+                return b[line[0]]
+        if all(b):
+            return 'draw'
         return None
 
-    def check_winner(self, symbol: str) -> bool:
-        b = self.board
-        # Horizontal
-        for r in range(ROWS):
-            for c in range(COLS - 3):
-                if all(b[r][c+i] == symbol for i in range(4)):
-                    return True
-        # Vertical
-        for r in range(ROWS - 3):
-            for c in range(COLS):
-                if all(b[r+i][c] == symbol for i in range(4)):
-                    return True
-        # Diagonal down-right
-        for r in range(ROWS - 3):
-            for c in range(COLS - 3):
-                if all(b[r+i][c+i] == symbol for i in range(4)):
-                    return True
-        # Diagonal down-left
-        for r in range(ROWS - 3):
-            for c in range(3, COLS):
-                if all(b[r+i][c-i] == symbol for i in range(4)):
-                    return True
-        return False
-
-    def is_draw(self) -> bool:
-        return all(self.board[0][c] != "" for c in range(COLS))
-
-    def state(self) -> dict:
-        connected = list(self.connections.keys())
+    def state(self):
         return {
             "type":         "state",
             "board":        self.board,
+            "symbols":      self.symbols,
             "current_turn": self.current_turn,
             "winner":       self.winner,
             "scores":       self.scores,
-            "last_first":   self.last_first,
-            "connected":    connected,
-            "symbols":      {p: self.symbol_for(p) for p in connected},
+            "connected":    list(self.connections.keys()),
         }
 
 
-game = Connect4Game()
+game = TicTacToeGame()
 
 
-async def broadcast(message: dict):
-    disconnected = []
-    for player, ws in game.connections.items():
+async def broadcast(msg: dict):
+    dead = []
+    for p, ws in game.connections.items():
         try:
-            await ws.send_text(json.dumps(message))
+            await ws.send_text(json.dumps(msg))
         except Exception:
-            disconnected.append(player)
-    for p in disconnected:
+            dead.append(p)
+    for p in dead:
         game.connections.pop(p, None)
 
 
 @router.websocket("/ws/{player}")
-async def connect4_ws(websocket: WebSocket, player: str):
+async def tictactoe_ws(websocket: WebSocket, player: str):
     if player not in ("Ariel", "Ella"):
         await websocket.close(code=4001)
         return
 
     await websocket.accept()
     game.connections[player] = websocket
+    registry.set_game(player, GAME_NAME)
 
-    if len(game.connections) == 2 and game.current_turn is None:
-        game.reset(game.next_first())
+    if len(game.connections) == 2:
+        players = list(game.connections.keys())
+        game.symbols      = {players[0]: "X", players[1]: "O"}
+        game.first_player = players[0]
+        game.current_turn = players[0]
+        game.reset()
+        for p in game.connections:
+            registry.clear_game(p)
 
     await broadcast(game.state())
 
@@ -111,39 +87,30 @@ async def connect4_ws(websocket: WebSocket, player: str):
             raw  = await websocket.receive_text()
             data = json.loads(raw)
 
-            if data.get("type") == "drop":
-                col = data.get("col")
-                if game.winner:                    continue
-                if game.current_turn != player:    continue
-                if not isinstance(col, int):       continue
-                if not (0 <= col < COLS):          continue
-                if len(game.connections) < 2:      continue
-
-                symbol = game.symbol_for(player)
-                row    = game.drop(col, symbol)
-                if row is None:
-                    continue  # column full
-
-                if game.check_winner(symbol):
-                    game.winner = player
-                    game.scores[player] += 1
-                elif game.is_draw():
-                    game.winner = "draw"
-                else:
-                    other = "Ella" if player == "Ariel" else "Ariel"
-                    game.current_turn = other
-
-                await broadcast(game.state())
+            if data.get("type") == "move":
+                idx = data.get("index")
+                if (game.current_turn == player and not game.winner
+                        and isinstance(idx, int) and 0 <= idx < 9 and not game.board[idx]):
+                    game.board[idx] = game.symbols[player]
+                    result = game.check_winner()
+                    if result:
+                        game.winner = result
+                        if result != "draw":
+                            winner_player = next(p for p, s in game.symbols.items() if s == result)
+                            game.scores[winner_player] += 1
+                    else:
+                        other = "Ella" if player == "Ariel" else "Ariel"
+                        game.current_turn = other
+                    await broadcast(game.state())
 
             elif data.get("type") == "rematch":
-                if len(game.connections) == 2:
-                    game.reset(game.next_first())
-                    await broadcast(game.state())
+                game.reset()
+                await broadcast(game.state())
 
     except WebSocketDisconnect:
         game.connections.pop(player, None)
+        registry.clear_game(player)
+        game.board        = [''] * 9
+        game.winner       = None
         game.current_turn = None
-        await broadcast({
-            **game.state(),
-            "message": f"{player} disconnected. Waiting...",
-        })
+        await broadcast({**game.state(), "message": f"{player} disconnected."})
