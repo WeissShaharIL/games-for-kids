@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 
@@ -28,15 +28,16 @@ function BulletBar({ count, max, color }) {
 }
 
 export default function Shooter({ player, onBack }) {
-  const [state, setState]       = useState(null)
-  const [status, setStatus]     = useState('Connecting...')
-  const [feedback, setFeedback] = useState(null)
+  const [state, setState]           = useState(null)
+  const [status, setStatus]         = useState('Connecting...')
+  const [feedback, setFeedback]     = useState(null)
   const [figureAnim, setFigureAnim] = useState(false)
-  const wsRef                   = useRef(null)
-  const prevFigure              = useRef(null)
-  const prevPhase               = useRef(null)
-  const feedbackTimer           = useRef(null)
-  const figureRef               = useRef(null)
+  const wsRef                       = useRef(null)
+  const mountedRef                  = useRef(true)
+  const prevFigure                  = useRef(null)
+  const prevPhase                   = useRef(null)
+  const feedbackTimer               = useRef(null)
+  const shootCooldown               = useRef(false)  // prevent double fire
 
   const p     = PLAYERS[player]
   const other = player === 'Ariel' ? 'Ella' : 'Ariel'
@@ -45,41 +46,46 @@ export default function Shooter({ player, onBack }) {
   const showFeedback = (text, color) => {
     clearTimeout(feedbackTimer.current)
     setFeedback({ text, color, key: Date.now() })
-    feedbackTimer.current = setTimeout(() => setFeedback(null), 900)
+    feedbackTimer.current = setTimeout(() => {
+      if (mountedRef.current) setFeedback(null)
+    }, 900)
   }
 
-  const connect = useCallback(() => {
+  useEffect(() => {
+    mountedRef.current = true
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
 
-    ws.onopen = () => setStatus(`Waiting for ${other}...`)
+    ws.onopen = () => {
+      if (!mountedRef.current) return
+      setStatus(`Waiting for ${other}...`)
+    }
 
     ws.onmessage = (e) => {
+      if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
 
       if (data.figure && data.figure !== prevFigure.current) {
         setFigureAnim(false)
-        setTimeout(() => setFigureAnim(true), 20)
+        setTimeout(() => { if (mountedRef.current) setFigureAnim(true) }, 20)
         prevFigure.current = data.figure
       }
       if (!data.figure) prevFigure.current = null
 
-      if (data.last_shot) {
+      if (data.last_shot?.player === player) {
         const shot = data.last_shot
-        if (shot.player === player) {
-          if (shot.result === 'hit') {
-            showFeedback(`🎯 +${shot.points}`, '#16a34a')
-            playSound('win')
-            vibrate([30, 20, 60])
-          } else if (shot.result === 'wrong') {
-            showFeedback(`❌ ${shot.points} ${shot.emoji}`, '#ef4444')
-            playSound('lose')
-            vibrate([100, 50, 100])
-          } else {
-            showFeedback('💨 Miss!', '#94a3b8')
-            vibrate(20)
-          }
+        if (shot.result === 'hit') {
+          showFeedback(`🎯 +${shot.points}`, '#16a34a')
+          playSound('win')
+          vibrate([30, 20, 60])
+        } else if (shot.result === 'wrong') {
+          showFeedback(`❌ ${shot.points} ${shot.emoji}`, '#ef4444')
+          playSound('lose')
+          vibrate([100, 50, 100])
+        } else {
+          showFeedback('💨 Miss!', '#94a3b8')
+          vibrate(20)
         }
       }
 
@@ -114,17 +120,34 @@ export default function Shooter({ player, onBack }) {
       }
     }
 
-    ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
+    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
     ws.onerror = () => ws.close()
+
+    return () => {
+      mountedRef.current = false
+      clearTimeout(feedbackTimer.current)
+      ws.close()
+    }
   }, [player])
 
-  useEffect(() => { connect(); return () => wsRef.current?.close() }, [connect])
-
+  // ── Shoot — with cooldown to prevent double fire on mobile ─────────────────
   const shoot = () => {
     if (state?.phase !== 'playing') return
     if ((state?.bullets?.[player] ?? 0) <= 0) return
+    if (shootCooldown.current) return   // block double fire
+
+    shootCooldown.current = true
+    setTimeout(() => { shootCooldown.current = false }, 200)
+
     vibrate(VIBRATIONS.tap)
+    playSound('shoot')
     wsRef.current?.send(JSON.stringify({ type: 'shoot' }))
+  }
+
+  // Use only onPointerDown — works for both mouse and touch, fires once per tap
+  const handleFigureTap = (e) => {
+    e.preventDefault()
+    shoot()
   }
 
   const sendReset = () => {
@@ -159,11 +182,6 @@ export default function Shooter({ player, onBack }) {
           from { transform: scale(0.2); opacity: 0; }
           to   { transform: scale(1);   opacity: 1; }
         }
-        @keyframes figShake {
-          0%,100% { transform: translateX(0); }
-          25%     { transform: translateX(-6px); }
-          75%     { transform: translateX(6px); }
-        }
       `}</style>
 
       <div style={s.header}>
@@ -172,7 +190,6 @@ export default function Shooter({ player, onBack }) {
         <div style={{ width: 64 }} />
       </div>
 
-      {/* Scores */}
       <div style={s.scoreBar}>
         <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
           <span>{p.emoji}</span>
@@ -190,11 +207,10 @@ export default function Shooter({ player, onBack }) {
         </div>
       </div>
 
-      {/* Status */}
       <div style={{
         ...s.status,
         background: figure?.shoot ? '#fef9c3' : figure ? '#fee2e2' : myWon ? p.light : oppWon ? op.light : '#f1f5f9',
-        color:      figure?.shoot ? '#92400e' : figure ? '#dc2626' : myWon ? p.color : oppWon ? op.color : '#64748b',
+        color:      figure?.shoot ? '#92400e'  : figure ? '#dc2626' : myWon ? p.color : oppWon ? op.color : '#64748b',
         fontSize:   figure ? 17 : 14,
       }}>
         {status}
@@ -207,45 +223,35 @@ export default function Shooter({ player, onBack }) {
         </div>
       )}
 
-      {/* Game area */}
       {bothHere && phase !== 'result' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 400, padding: '0 20px' }}>
 
-          {/* Countdown */}
           {phase === 'countdown' && state?.countdown !== null && (
             <div style={{ fontSize: 88, fontWeight: 900, color: p.color, lineHeight: 1, animation: 'figPop 0.3s ease' }}>
               {state.countdown === 0 ? 'GO!' : state.countdown}
             </div>
           )}
 
-          {/* Figure arena */}
           {(phase === 'playing' || phase === 'countdown') && (
             <div style={{
               width: '100%', height: 280,
-              background: '#fff',
-              borderRadius: 24,
+              background: '#fff', borderRadius: 24,
               border: `3px solid ${figure?.shoot ? '#eab308' : figure ? '#ef4444' : '#e2e8f0'}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               boxShadow: figure ? `0 6px 24px ${figure.shoot ? '#eab30844' : '#ef444422'}` : '0 2px 12px #0001',
               transition: 'border-color 0.2s, box-shadow 0.2s',
               position: 'relative', overflow: 'hidden',
             }}>
-              {/* The tappable figure */}
               {figure && (
                 <div
-                  ref={figureRef}
-                  onClick={canShoot ? shoot : undefined}
-                  onTouchStart={canShoot ? (e) => { e.preventDefault(); shoot() } : undefined}
+                  onPointerDown={canShoot ? handleFigureTap : undefined}
                   style={{
-                    fontSize: 72,
-                    lineHeight: 1,
+                    fontSize: 72, lineHeight: 1,
                     cursor: canShoot ? 'pointer' : 'default',
                     animation: figureAnim ? 'figPop 0.25s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
-                    userSelect: 'none',
-                    WebkitUserSelect: 'none',
-                    touchAction: 'manipulation',
-                    padding: 16,          // larger tap target around emoji
-                    borderRadius: 20,
+                    userSelect: 'none', WebkitUserSelect: 'none',
+                    touchAction: 'none',
+                    padding: 16, borderRadius: 20,
                     background: canShoot ? (figure.shoot ? '#fef9c333' : '#fee2e222') : 'transparent',
                     border: canShoot ? `2px dashed ${figure.shoot ? '#eab308' : '#fca5a5'}` : '2px dashed transparent',
                     transition: 'background 0.15s',
@@ -255,12 +261,10 @@ export default function Shooter({ player, onBack }) {
                 </div>
               )}
 
-              {/* Empty arena hint */}
               {!figure && phase === 'playing' && (
                 <div style={{ fontSize: 40, color: '#e2e8f0' }}>👁️</div>
               )}
 
-              {/* Feedback float */}
               {feedback && (
                 <div key={feedback.key} style={{
                   position: 'absolute', top: '30%',
@@ -276,7 +280,6 @@ export default function Shooter({ player, onBack }) {
             </div>
           )}
 
-          {/* Bullet bars */}
           {phase === 'playing' && (
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -290,7 +293,6 @@ export default function Shooter({ player, onBack }) {
             </div>
           )}
 
-          {/* Legend */}
           {phase === 'playing' && (
             <div style={{ display: 'flex', gap: 16, fontSize: 12, fontWeight: 700 }}>
               <span style={{ color: '#92400e' }}>🦹🧟👺 Tap! +1</span>
@@ -300,7 +302,6 @@ export default function Shooter({ player, onBack }) {
         </div>
       )}
 
-      {/* Result */}
       {phase === 'result' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 400, padding: '0 20px' }}>
           <div style={{ fontSize: 56 }}>{myWon ? p.emoji : oppWon ? op.emoji : '🤝'}</div>
@@ -310,10 +311,10 @@ export default function Shooter({ player, onBack }) {
 
           <div style={{ width: '100%', background: '#fff', borderRadius: 20, padding: 18, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 4px 16px #0001' }}>
             {[
-              { label: 'Score',        me: myScore,                        opp: otherScore },
-              { label: 'Villains hit', me: myHits,                         opp: oppHits    },
-              { label: 'Wrong shots',  me: state?.wastes?.[player] ?? 0,   opp: state?.wastes?.[other] ?? 0 },
-              { label: 'Bullets left', me: myBullets,                      opp: oppBullets },
+              { label: 'Score',        me: myScore,                       opp: otherScore },
+              { label: 'Villains hit', me: myHits,                        opp: oppHits    },
+              { label: 'Wrong shots',  me: state?.wastes?.[player] ?? 0,  opp: state?.wastes?.[other] ?? 0 },
+              { label: 'Bullets left', me: myBullets,                     opp: oppBullets },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 900, color: p.color, minWidth: 28, textAlign: 'right', fontSize: 16 }}>{row.me}</span>
