@@ -10,44 +10,44 @@ import Lego      from './games/Lego'
 
 const API = '/api'
 
-const CROWN_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#16a34a">
-    <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
-    <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
-    <rect x="30" y="85" width="60" height="10" rx="3"/>
-  </g>
-</svg>`)
-
-const TIARA_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#db2777">
-    <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
-    <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
-    <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
-    <rect x="18" y="72" width="84" height="8" rx="4"/>
-  </g>
-</svg>`)
-
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', bgImage: `url("data:image/svg+xml,${CROWN_SVG}")`, emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', bgImage: `url("data:image/svg+xml,${TIARA_SVG}")`, emoji: '🦋' },
-}
-
 const GAMES = [
-  { id: 'tictactoe', name: 'Tic Tac Toe',  emoji: '⭕', desc: 'Classic 3×3 board game',       component: TicTacToe, ready: true  },
-  { id: 'connect4',  name: '4 in a Row',    emoji: '🔴', desc: 'Drop discs, connect four!',     component: Connect4,  ready: true  },
-  { id: 'airhockey', name: 'Air Hockey',    emoji: '🏒', desc: 'Drag your mallet, score goals!', component: AirHockey, ready: true  },
-  { id: 'snake',     name: 'Snake Race',    emoji: '🐍', desc: 'Two snakes, one apple!',        component: Snake,     ready: true  },
-  { id: 'balloons',  name: 'Pop Balloons!', emoji: '🎈', desc: 'Pop as many as you can!',       component: Balloons,  ready: true  },
-  { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!',   component: Shooter,   ready: true  },
-  { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',  component: Spinner,   ready: true  },
-  { id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',               component: Lego,      ready: true  },
-  { id: 'memory',    name: 'Memory',        emoji: '🃏', desc: 'Flip & match the cards',        component: null,      ready: false },
+  { id: 'tictactoe', name: 'Tic Tac Toe',  emoji: '⭕', desc: 'Classic 3×3 board game',        component: TicTacToe, ready: true  },
+  { id: 'connect4',  name: '4 in a Row',    emoji: '🔴', desc: 'Drop discs, connect four!',      component: Connect4,  ready: true  },
+  { id: 'airhockey', name: 'Air Hockey',    emoji: '🏒', desc: 'Drag your mallet, score goals!',  component: AirHockey, ready: true  },
+  { id: 'snake',     name: 'Snake Race',    emoji: '🐍', desc: 'Two snakes, one apple!',         component: Snake,     ready: true  },
+  { id: 'balloons',  name: 'Pop Balloons!', emoji: '🎈', desc: 'Pop as many as you can!',        component: Balloons,  ready: true  },
+  { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!',    component: Shooter,   ready: true  },
+  { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',   component: Spinner,   ready: true  },
+  { id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',                component: Lego,      ready: true  },
+  { id: 'memory',    name: 'Memory',        emoji: '🃏', desc: 'Flip & match the cards',         component: null,      ready: false },
 ]
 
-function OnlinePill({ name }) {
-  const p = PLAYERS[name]
+// Build SVG watermark for a player
+function makeWatermarkBg(color, shape) {
+  let svgContent
+  if (shape === 'crown') {
+    svgContent = `
+      <g opacity="0.10" fill="${color}">
+        <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
+        <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
+        <rect x="30" y="85" width="60" height="10" rx="3"/>
+      </g>`
+  } else {
+    svgContent = `
+      <g opacity="0.10" fill="${color}">
+        <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
+        <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
+        <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
+        <rect x="18" y="72" width="84" height="8" rx="4"/>
+      </g>`
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">${svgContent}</svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
+// ── Online pill ───────────────────────────────────────────────────────────────
+function OnlinePill({ name, players }) {
+  const p = players[name]
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 4,
@@ -63,6 +63,7 @@ function OnlinePill({ name }) {
   )
 }
 
+// ── PIN Screen ────────────────────────────────────────────────────────────────
 function PinScreen({ onLogin }) {
   const [digits, setDigits]   = useState(['', '', '', ''])
   const [error, setError]     = useState('')
@@ -74,10 +75,8 @@ function PinScreen({ onLogin }) {
 
   const handleDigit = (i, val) => {
     if (!/^\d?$/.test(val)) return
-    const next = [...digits]
-    next[i] = val
-    setDigits(next)
-    setError('')
+    const next = [...digits]; next[i] = val
+    setDigits(next); setError('')
     if (val && i < 3) refs[i + 1].current?.focus()
     if (next.every(d => d !== '')) submit(next.join(''))
   }
@@ -98,12 +97,9 @@ function PinScreen({ onLogin }) {
       onLogin(player)
     } catch {
       setError('Wrong PIN, try again!')
-      setShake(true)
-      setDigits(['', '', '', ''])
+      setShake(true); setDigits(['', '', '', ''])
       setTimeout(() => { setShake(false); refs[0].current?.focus() }, 600)
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
   return (
@@ -128,85 +124,74 @@ function PinScreen({ onLogin }) {
   )
 }
 
-function GameHub({ player, onSelectGame }) {
+// ── Game Hub ──────────────────────────────────────────────────────────────────
+function GameHub({ player, players, onSelectGame }) {
   const [onlineUsers, setOnlineUsers] = useState([])
-  const [waiting, setWaiting]         = useState({})  // {playerName: gameName}
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const [waiting, setWaiting]         = useState({})
+  const p     = players[player] || {}
+  const names = Object.keys(players)
+  const others = names.filter(n => n !== player)
 
   useEffect(() => {
-    const fetchOnline = () =>
-      fetch(`${API}/online`)
-        .then(r => r.json())
-        .then(d => {
-          setOnlineUsers(d.online || [])
-          setWaiting(d.waiting || {})
-        })
+    const fetch_ = () =>
+      fetch(`${API}/online`).then(r => r.json())
+        .then(d => { setOnlineUsers(d.online || []); setWaiting(d.waiting || {}) })
         .catch(() => {})
-
-    fetchOnline()
-    const t = setInterval(fetchOnline, 3000)
+    fetch_()
+    const t = setInterval(fetch_, 3000)
     return () => clearInterval(t)
   }, [])
 
-  // Is the other player waiting somewhere?
-  const otherWaitingIn = waiting[other]
+  // Any other player waiting in a game?
+  const otherWaiting = others.map(n => waiting[n] ? { name: n, game: waiting[n], p: players[n] } : null).filter(Boolean)
 
   return (
-    <div style={{ ...s.hubWrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: 40, background: p.bg || '#f8fafc',
+      backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
       <header style={s.hubHeader}>
         <div style={s.hubLogo}>🎮 Game Room</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {onlineUsers.map(name => <OnlinePill key={name} name={name} />)}
+          {onlineUsers.map(name => <OnlinePill key={name} name={name} players={players} />)}
           {onlineUsers.length === 0 && <span style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 700 }}>No one online</span>}
         </div>
-        <div style={{ ...s.hubBadge, background: p.color, flexShrink: 0 }}>{p.emoji} {player}</div>
+        <div style={{ ...s.hubBadge, background: p.color || '#6366f1', flexShrink: 0 }}>{p.emoji} {player}</div>
       </header>
 
-      {/* Waiting notification banner */}
-      {otherWaitingIn && (
-        <div style={{
-          margin: '10px 16px 0',
-          padding: '10px 16px',
-          background: op.light,
-          border: `1.5px solid ${op.color}44`,
-          borderRadius: 14,
-          display: 'flex', alignItems: 'center', gap: 10,
-          animation: 'pulse 2s ease-in-out infinite',
-        }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: op.color, flexShrink: 0, animation: 'pulse 1.5s ease-in-out infinite' }} />
+      {/* Waiting banners */}
+      {otherWaiting.map(({ name, game, p: op }) => (
+        <div key={name} style={{ margin: '10px 16px 0', padding: '10px 16px', background: op?.light || '#f1f5f9',
+          border: `1.5px solid ${op?.color + '44' || '#e2e8f0'}`, borderRadius: 14,
+          display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: op?.color, flexShrink: 0, animation: 'pulse 1.5s ease-in-out infinite' }} />
           <div>
-            <span style={{ fontWeight: 900, color: op.color, fontSize: 14 }}>{op.emoji} {other}</span>
+            <span style={{ fontWeight: 900, color: op?.color, fontSize: 14 }}>{op?.emoji} {name}</span>
             <span style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}> is waiting for you in </span>
-            <span style={{ fontWeight: 900, color: op.color, fontSize: 14 }}>{otherWaitingIn}</span>
-            <span style={{ color: '#64748b', fontSize: 13, fontWeight: 600 }}>!</span>
+            <span style={{ fontWeight: 900, color: op?.color, fontSize: 14 }}>{game}</span>
+            <span style={{ color: '#64748b', fontSize: 13 }}>!</span>
           </div>
         </div>
-      )}
+      ))}
 
       <h2 style={s.hubTitle}>Pick a game!</h2>
 
       <div style={s.gameGrid}>
         {GAMES.map(g => {
-          const otherWaitingHere = otherWaitingIn && otherWaitingIn.includes(g.name)
+          const waitingHere = otherWaiting.find(w => w.game.includes(g.name))
           return (
-            <div key={g.id} onClick={() => g.ready && onSelectGame(g.id)}
-              style={{
-                ...s.gameCard,
-                opacity:     g.ready ? 1 : 0.5,
-                cursor:      g.ready ? 'pointer' : 'not-allowed',
-                borderColor: otherWaitingHere ? op.color : g.ready ? p.color : '#e2e8f0',
-                boxShadow:   otherWaitingHere ? `0 4px 20px ${op.color}44` : '0 4px 16px #0001',
-                transform:   otherWaitingHere ? 'scale(1.03)' : 'scale(1)',
-              }}
-            >
+            <div key={g.id} onClick={() => g.ready && onSelectGame(g.id)} style={{
+              ...s.gameCard,
+              opacity:     g.ready ? 1 : 0.5,
+              cursor:      g.ready ? 'pointer' : 'not-allowed',
+              borderColor: waitingHere ? waitingHere.p?.color : g.ready ? (p.color || '#6366f1') : '#e2e8f0',
+              boxShadow:   waitingHere ? `0 4px 20px ${waitingHere.p?.color}44` : '0 4px 16px #0001',
+              transform:   waitingHere ? 'scale(1.03)' : 'scale(1)',
+            }}>
               <div style={s.gameEmoji}>{g.emoji}</div>
               <div style={s.gameName}>{g.name}</div>
               <div style={s.gameDesc}>{g.desc}</div>
-              {otherWaitingHere && (
-                <div style={{ marginTop: 8, padding: '4px 10px', borderRadius: 999, background: op.color, color: '#fff', fontSize: 11, fontWeight: 800 }}>
-                  {op.emoji} {other} is waiting!
+              {waitingHere && (
+                <div style={{ marginTop: 8, padding: '4px 10px', borderRadius: 999, background: waitingHere.p?.color, color: '#fff', fontSize: 11, fontWeight: 800 }}>
+                  {waitingHere.p?.emoji} {waitingHere.name} is waiting!
                 </div>
               )}
               {!g.ready && <div style={s.gameSoon}>Coming soon</div>}
@@ -218,21 +203,51 @@ function GameHub({ player, onSelectGame }) {
   )
 }
 
+// ── App root ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [player, setPlayer] = useState(null)
-  const [gameId, setGameId] = useState(null)
+  const [player, setPlayer]   = useState(null)
+  const [gameId, setGameId]   = useState(null)
+  const [players, setPlayers] = useState({})   // {name: {color, emoji, bg, light, bgImage}}
+  const [loading, setLoading] = useState(true)
+
+  // Fetch player config from backend on mount
+  useEffect(() => {
+    fetch(`${API}/players`)
+      .then(r => r.json())
+      .then(data => {
+        const map = {}
+        data.players.forEach((p, idx) => {
+          map[p.name] = {
+            ...p,
+            bgImage: makeWatermarkBg(p.color, idx === 0 ? 'crown' : 'tiara'),
+          }
+        })
+        setPlayers(map)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+        <div style={{ color: '#fff', fontSize: 24, fontWeight: 900 }}>🎮 Loading...</div>
+      </div>
+    )
+  }
 
   if (!player) return <PinScreen onLogin={setPlayer} />
-  if (!gameId) return <GameHub player={player} onSelectGame={setGameId} />
+  if (!gameId) return <GameHub player={player} players={players} onSelectGame={setGameId} />
 
   const game = GAMES.find(g => g.id === gameId)
   if (game?.component) {
     const GameComponent = game.component
-    return <GameComponent player={player} onBack={() => setGameId(null)} />
+    return <GameComponent player={player} players={players} onBack={() => setGameId(null)} />
   }
   return null
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s = {
   pinWrap:  { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
   pinCard:  { background: '#fff', borderRadius: 28, padding: '48px 40px', textAlign: 'center', boxShadow: '0 24px 64px #0003', minWidth: 320 },
@@ -243,13 +258,12 @@ const s = {
   pinInput: { width: 56, height: 64, fontSize: 28, fontWeight: 900, textAlign: 'center', border: '2px solid', borderRadius: 14, outline: 'none', color: '#1e1b4b', transition: 'all 0.2s', background: '#f8fafc', fontFamily: 'inherit' },
   pinError:   { color: '#ef4444', fontWeight: 700, fontSize: 14, marginTop: 4 },
   pinLoading: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
-  hubWrap:   { minHeight: '100vh', paddingBottom: 40 },
   hubHeader: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
   hubLogo:   { fontSize: 14, fontWeight: 900, color: '#1e1b4b', flexShrink: 0 },
   hubBadge:  { color: '#fff', padding: '5px 12px', borderRadius: 999, fontWeight: 800, fontSize: 13 },
   hubTitle:  { fontSize: 26, fontWeight: 900, color: '#1e1b4b', textAlign: 'center', padding: '24px 0 14px' },
   gameGrid:  { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 20, maxWidth: 700, margin: '0 auto', padding: '0 24px' },
-  gameCard:  { background: '#ffffffee', borderRadius: 20, padding: '28px 20px', textAlign: 'center', border: '2px solid', boxShadow: '0 4px 16px #0001', transition: 'all 0.2s' },
+  gameCard:  { background: '#ffffffee', borderRadius: 20, padding: '28px 20px', textAlign: 'center', border: '2px solid', transition: 'all 0.2s' },
   gameEmoji: { fontSize: 48, marginBottom: 10 },
   gameName:  { fontSize: 18, fontWeight: 900, color: '#1e1b4b', marginBottom: 6 },
   gameDesc:  { fontSize: 13, color: '#94a3b8' },

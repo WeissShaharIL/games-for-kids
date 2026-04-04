@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -15,13 +16,34 @@ import online as registry
 
 load_dotenv()
 
-PIN_ARIEL = os.getenv("PIN_ARIEL", "1111")
-PIN_ELLA  = os.getenv("PIN_ELLA",  "2222")
+# ── Load players from PLAYER_1, PLAYER_2, ... env vars ───────────────────────
+# Format: name:pin:color:light:bg:emoji
+# Example: Ariel:1111:#16a34a:#dcfce7:#f0fdf4:🦁
 
-PINS = {
-    PIN_ARIEL: "Ariel",
-    PIN_ELLA:  "Ella",
-}
+PLAYERS_CONFIG: list[dict] = []
+PINS: dict[str, str] = {}
+
+i = 1
+while True:
+    val = os.getenv(f"PLAYER_{i}")
+    if not val:
+        break
+    parts = val.strip().split(":")
+    if len(parts) >= 6:
+        name, pin, color, light, bg, emoji = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+        PLAYERS_CONFIG.append({"name": name, "color": color, "light": light, "bg": bg, "emoji": emoji})
+        PINS[pin] = name
+    i += 1
+
+# Fallback to old PIN_ARIEL / PIN_ELLA style if no PLAYER_N vars found
+if not PLAYERS_CONFIG:
+    defaults = [
+        ("Ariel", os.getenv("PIN_ARIEL", "1111"), "#16a34a", "#dcfce7", "#f0fdf4", "🦁"),
+        ("Ella",  os.getenv("PIN_ELLA",  "2222"), "#db2777", "#fce7f3", "#fdf2f8", "🦋"),
+    ]
+    for name, pin, color, light, bg, emoji in defaults:
+        PLAYERS_CONFIG.append({"name": name, "color": color, "light": light, "bg": bg, "emoji": emoji})
+        PINS[pin] = name
 
 app = FastAPI(title="Kids Game Hub")
 
@@ -31,6 +53,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/players")
+async def get_players():
+    """Return public player config (no PINs) for the frontend."""
+    return {"players": PLAYERS_CONFIG}
 
 @app.post("/auth")
 async def auth(payload: dict):
@@ -49,7 +76,7 @@ async def health():
 async def online():
     return {
         "online":  registry.get_online(),
-        "waiting": registry.get_status(),   # {player: game_name}
+        "waiting": registry.get_status(),
     }
 
 app.include_router(tictactoe_router, prefix="/tictactoe")
