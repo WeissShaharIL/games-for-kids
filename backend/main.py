@@ -12,13 +12,10 @@ from games.balloons   import router as balloons_router
 from games.shooter    import router as shooter_router
 from games.airhockey  import router as airhockey_router
 from games.lego       import router as lego_router
+from games.mountain   import router as mountain_router
 import online as registry
 
 load_dotenv()
-
-# ── Load players from PLAYER_1, PLAYER_2, ... env vars ───────────────────────
-# Format: name:pin:color:light:bg:emoji
-# Example: Ariel:1111:#16a34a:#dcfce7:#f0fdf4:🦁
 
 PLAYERS_CONFIG: list[dict] = []
 PINS: dict[str, str] = {}
@@ -35,7 +32,6 @@ while True:
         PINS[pin] = name
     i += 1
 
-# Fallback to old PIN_ARIEL / PIN_ELLA style if no PLAYER_N vars found
 if not PLAYERS_CONFIG:
     defaults = [
         ("Ariel", os.getenv("PIN_ARIEL", "1111"), "#16a34a", "#dcfce7", "#f0fdf4", "🦁"),
@@ -56,7 +52,6 @@ app.add_middleware(
 
 @app.get("/players")
 async def get_players():
-    """Return public player config (no PINs) for the frontend."""
     return {"players": PLAYERS_CONFIG}
 
 @app.post("/auth")
@@ -74,10 +69,7 @@ async def health():
 
 @app.get("/online")
 async def online():
-    return {
-        "online":  registry.get_online(),
-        "waiting": registry.get_status(),
-    }
+    return {"online": registry.get_online(), "waiting": registry.get_status()}
 
 app.include_router(tictactoe_router, prefix="/tictactoe")
 app.include_router(connect4_router,  prefix="/connect4")
@@ -87,3 +79,4 @@ app.include_router(balloons_router,  prefix="/balloons")
 app.include_router(shooter_router,   prefix="/shooter")
 app.include_router(airhockey_router, prefix="/airhockey")
 app.include_router(lego_router,      prefix="/lego")
+app.include_router(mountain_router,  prefix="/mountain")

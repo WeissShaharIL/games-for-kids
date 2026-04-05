@@ -7,6 +7,7 @@ import Balloons  from './games/Balloons'
 import Shooter   from './games/Shooter'
 import AirHockey from './games/AirHockey'
 import Lego      from './games/Lego'
+import Mountain from './games/Mountain'
 import MuteButton from './MuteButton.jsx'
 
 const API = '/api'
@@ -20,7 +21,10 @@ const GAMES = [
   { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!',    component: Shooter,   ready: true  },
   { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',   component: Spinner,   ready: true  },
   { id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',                component: Lego,      ready: true  },
+  { id: 'mountain', name: 'Mountain Quiz', emoji: '🏔️', desc: 'Answer right, push opponent down!', component: Mountain, ready: true },
   { id: 'memory',    name: 'Memory',        emoji: '🃏', desc: 'Flip & match the cards',         component: null,      ready: false },
+  
+  
 ]
 
 function makeWatermarkBg(color, shape) {
