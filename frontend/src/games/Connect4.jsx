@@ -1,41 +1,35 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/connect4/ws`
-
 const ROWS = 6
 const COLS = 7
-
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-}
-
 const EMPTY_BOARD = () => Array(ROWS).fill(null).map(() => Array(COLS).fill(''))
 
-export default function Connect4({ player, onBack }) {
+export default function Connect4({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const wsRef               = useRef(null)
   const mountedRef          = useRef(true)
   const prevWinner          = useRef(null)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const p = getPlayer(players, player, 0)
+
+  // Get opponent from connected players (dynamic, not hardcoded)
+  const connected = state?.connected || []
+  const other     = connected.find(n => n !== player) || null
+  const op        = other ? getPlayer(players, other, 1) : null
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus(`Waiting for ${other}...`) }
-
+    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Waiting for opponent...') }
     ws.onmessage = (e) => {
       if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
-
       if (data.winner && data.winner !== prevWinner.current) {
         if (data.winner === 'draw')      playSound('draw')
         else if (data.winner === player) playSound('win')
@@ -43,27 +37,21 @@ export default function Connect4({ player, onBack }) {
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
-
+      const opp = data.connected?.find(n => n !== player)
       if (data.message)                      setStatus(data.message)
-      else if (data.connected?.length < 2)   setStatus(`Waiting for ${other}...`)
+      else if (data.connected?.length < 2)   setStatus('Waiting for opponent...')
       else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
       else if (data.winner === player)        setStatus('🎉 You won!')
       else if (data.winner)                  setStatus(`${data.winner} won!`)
-      else if (data.current_turn === player) setStatus('🔴 Your turn — drop a disc!')
-      else                                   setStatus(`${other}'s turn...`)
+      else if (data.current_turn === player) setStatus('🔴 Your turn!')
+      else                                   setStatus(`${data.current_turn}'s turn...`)
     }
-
-    ws.onclose = () => {
-      if (!mountedRef.current) return
-      setStatus('Disconnected. Reconnecting...')
-      setTimeout(connect, 2000)
-    }
+    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...'); setTimeout(connect, 2000) }
     ws.onerror = () => ws.close()
   }, [player])
 
   useEffect(() => {
-    mountedRef.current = true
-    connect()
+    mountedRef.current = true; connect()
     return () => { mountedRef.current = false; wsRef.current?.close() }
   }, [connect])
 
@@ -74,27 +62,21 @@ export default function Connect4({ player, onBack }) {
     wsRef.current?.send(JSON.stringify({ type: 'drop', col }))
   }
 
-  const rematch = () => {
-    playSound('rematch')
-    wsRef.current?.send(JSON.stringify({ type: 'rematch' }))
-  }
+  const rematch = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type: 'rematch' })) }
 
-  const myScore    = state?.scores?.[player]  ?? 0
-  const otherScore = state?.scores?.[other]   ?? 0
-  const bothHere   = state?.connected?.length === 2
+  const myScore    = state?.scores?.[player] ?? 0
+  const otherScore = other ? (state?.scores?.[other] ?? 0) : 0
+  const bothHere   = connected.length >= 2
   const myTurn     = state?.current_turn === player && bothHere && !state?.winner
+  const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : myTurn ? p.light : '#f1f5f9'
+  const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : myTurn ? p.color : '#64748b'
+  const cellSize    = Math.min(Math.floor((window.innerWidth - 32) / COLS), 52)
 
-  // Safe board — always a 2D array
   const board = (() => {
     const b = state?.board
     if (!b || !Array.isArray(b)) return EMPTY_BOARD()
     return b.map(row => Array.isArray(row) ? row : Array(COLS).fill(''))
   })()
-
-  const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : myTurn ? p.light : '#f1f5f9'
-  const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : myTurn ? p.color : '#64748b'
-
-  const cellSize = Math.min(Math.floor((window.innerWidth - 32) / COLS), 52)
 
   return (
     <div style={{ ...s.wrap, background: p.bg }}>
@@ -104,7 +86,7 @@ export default function Connect4({ player, onBack }) {
         <div style={{ width: 64 }} />
       </div>
 
-      {/* Scores */}
+      {/* Score bar — only show opponent when connected */}
       <div style={s.scoreBar}>
         <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
           <span style={{ fontSize: 20 }}>{p.emoji}</span>
@@ -114,59 +96,49 @@ export default function Connect4({ player, onBack }) {
           </div>
           <span style={{ fontSize: 24, fontWeight: 900, color: p.color }}>{myScore}</span>
         </div>
-        <div style={{ fontSize: 12, fontWeight: 900, color: '#cbd5e1' }}>VS</div>
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontSize: 20 }}>{op.emoji}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, color: op.color, fontSize: 14 }}>{other}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8' }}>plays {state?.symbols?.[other] || '🟡'}</div>
+
+        {op && other ? (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 900, color: '#cbd5e1' }}>VS</div>
+            <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
+              <span style={{ fontSize: 20 }}>{op.emoji}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: op.color, fontSize: 14 }}>{other}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>plays {state?.symbols?.[other] || '🟡'}</div>
+              </div>
+              <span style={{ fontSize: 24, fontWeight: 900, color: op.color }}>{otherScore}</span>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', fontSize: 13, fontWeight: 700, fontStyle: 'italic' }}>
+            Waiting...
           </div>
-          <span style={{ fontSize: 24, fontWeight: 900, color: op.color }}>{otherScore}</span>
-        </div>
+        )}
       </div>
 
       <div style={{ ...s.status, background: statusBg, color: statusColor }}>{status}</div>
 
-      {/* Column drop buttons */}
       {bothHere && !state?.winner && (
         <div style={{ display: 'flex', gap: 4, padding: '0 4px' }}>
           {Array(COLS).fill(null).map((_, col) => (
-            <button key={col} onClick={() => drop(col)} style={{
-              width: cellSize, height: 28, border: 'none', borderRadius: 8,
-              background: myTurn ? p.color + '22' : 'transparent',
-              cursor: myTurn ? 'pointer' : 'default',
-              fontSize: 16, color: p.color,
-              transition: 'background 0.15s',
-            }}>
+            <button key={col} onClick={() => drop(col)} style={{ width: cellSize, height: 28, border: 'none', borderRadius: 8, background: myTurn ? p.color + '22' : 'transparent', cursor: myTurn ? 'pointer' : 'default', fontSize: 16, color: p.color }}>
               {myTurn ? '▼' : ''}
             </button>
           ))}
         </div>
       )}
 
-      {/* Board */}
       <div style={{ background: '#1e3a5f', borderRadius: 16, padding: 8, boxShadow: '0 8px 32px #0003' }}>
         {board.map((row, ri) => (
           <div key={ri} style={{ display: 'flex', gap: 4, marginBottom: ri < ROWS - 1 ? 4 : 0 }}>
             {row.map((cell, ci) => {
-              const symbol  = state?.symbols
-              const isAriel = symbol && cell === symbol['Ariel']
-              const isElla  = symbol && cell === symbol['Ella']
-              const cellColor = isAriel ? PLAYERS.Ariel.color : isElla ? PLAYERS.Ella.color : null
-
+              const sym      = state?.symbols
+              const isMe     = sym && cell === sym[player]
+              const isOther  = sym && cell && !isMe
+              const cellColor = isMe ? p.color : (isOther && op) ? op.color : null
               return (
-                <div key={ci} onClick={() => myTurn && drop(ci)} style={{
-                  width: cellSize, height: cellSize,
-                  borderRadius: '50%',
-                  background: cellColor || '#0f2744',
-                  boxShadow: cellColor ? `0 3px 10px ${cellColor}66, inset 0 -3px 6px #0003` : 'inset 0 3px 6px #0005',
-                  cursor: myTurn && !cell ? 'pointer' : 'default',
-                  transition: 'background 0.2s',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  {cellColor && (
-                    <div style={{ width: '55%', height: '55%', borderRadius: '50%', background: cellColor + 'cc', boxShadow: `inset 0 -2px 4px #0002` }} />
-                  )}
+                <div key={ci} onClick={() => myTurn && drop(ci)} style={{ width: cellSize, height: cellSize, borderRadius: '50%', background: cellColor || '#0f2744', boxShadow: cellColor ? `0 3px 10px ${cellColor}66, inset 0 -3px 6px #0003` : 'inset 0 3px 6px #0005', cursor: myTurn && !cell ? 'pointer' : 'default', transition: 'background 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {cellColor && <div style={{ width: '55%', height: '55%', borderRadius: '50%', background: cellColor + 'cc' }} />}
                 </div>
               )
             })}
@@ -174,14 +146,12 @@ export default function Connect4({ player, onBack }) {
         ))}
       </div>
 
-      {state?.winner && bothHere && (
-        <button onClick={rematch} style={{ ...s.rematchBtn, background: p.color }}>🔄 Play Again</button>
-      )}
+      {state?.winner && bothHere && <button onClick={rematch} style={{ ...s.rematchBtn, background: p.color }}>🔄 Play Again</button>}
 
       {!bothHere && (
         <div style={s.waiting}>
           <div style={{ ...s.waitingDot, background: p.color }} />
-          Waiting for {other} to join...
+          Waiting for opponent...
         </div>
       )}
     </div>

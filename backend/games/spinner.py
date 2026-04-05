@@ -111,9 +111,7 @@ async def run_tap_timer():
 
 @router.websocket("/ws/{player}")
 async def spinner_ws(websocket: WebSocket, player: str):
-    if player not in ("Ariel", "Ella"):
-        await websocket.close(code=4001)
-        return
+    
 
     await websocket.accept()
     game.connections[player] = websocket

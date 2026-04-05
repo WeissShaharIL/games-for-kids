@@ -115,9 +115,7 @@ async def game_loop():
 
 @router.websocket("/ws/{player}")
 async def airhockey_ws(websocket: WebSocket, player: str):
-    if player not in ("Ariel", "Ella"):
-        await websocket.close(code=4001)
-        return
+
 
     await websocket.accept()
     game.connections[player] = websocket

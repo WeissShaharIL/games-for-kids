@@ -1,43 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
+import { getPlayer, getOther } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/tictactoe/ws`
 
-const CROWN_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#16a34a">
-    <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
-    <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
-    <rect x="30" y="85" width="60" height="10" rx="3"/>
-  </g>
-</svg>`)
-
-const TIARA_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#db2777">
-    <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
-    <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
-    <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
-    <rect x="18" y="72" width="84" height="8" rx="4"/>
-  </g>
-</svg>`)
-
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', bgImage: `url("data:image/svg+xml,${CROWN_SVG}")`, emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', bgImage: `url("data:image/svg+xml,${TIARA_SVG}")`, emoji: '🦋' },
-}
-
-export default function TicTacToe({ player, onBack }) {
+export default function TicTacToe({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const wsRef               = useRef(null)
   const mountedRef          = useRef(true)
   const prevWinner          = useRef(null)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const p     = getPlayer(players, player, 0)
+
+  // Get opponent from connected players (dynamic, not hardcoded)
+  const connected = state?.connected || []
+  const other     = connected.find(n => n !== player) || null
+  const op        = other ? getPlayer(players, other, 1) : null
+
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -54,8 +35,9 @@ export default function TicTacToe({ player, onBack }) {
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
+      const otherName = data.connected?.find(n => n !== player) || other
       if (data.message)                      setStatus(data.message)
-      else if (data.connected?.length < 2)   setStatus(`Waiting for ${other}...`)
+      else if (data.connected?.length < 2)   setStatus(`Waiting for opponent...`)
       else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
       else if (data.winner === player)        setStatus('🎉 You won!')
       else if (data.winner)                  setStatus(`${data.winner} won!`)
@@ -106,7 +88,7 @@ export default function TicTacToe({ player, onBack }) {
   const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : myTurn ? p.color : '#64748b'
 
   return (
-    <div style={{ ...s.wrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
+    <div style={{ ...s.wrap, background: p.bg }}>
       <div style={s.header}>
         <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
         <div style={s.title}>Tic Tac Toe</div>
@@ -138,7 +120,8 @@ export default function TicTacToe({ player, onBack }) {
       <div style={s.board}>
         {(state?.board || Array(9).fill('')).map((cell, i) => {
           const isWin     = winLine.includes(i)
-          const cellColor = cell === mySymbol ? p.color : op.color
+          const isMyCell  = cell === mySymbol
+          const cellColor = isMyCell ? p.color : op.color
           return (
             <div key={i} onClick={() => move(i)} style={{
               ...s.cell,
@@ -160,7 +143,7 @@ export default function TicTacToe({ player, onBack }) {
       {!bothHere && (
         <div style={s.waiting}>
           <div style={{ ...s.waitingDot, background: p.color }} />
-          Waiting for {other} to join...
+          Waiting for opponent...
         </div>
       )}
     </div>

@@ -6,6 +6,8 @@ import online as registry
 router = APIRouter()
 
 GAME_NAME = "Tic Tac Toe ⭕"
+MAX_PLAYERS = 2
+
 
 class TicTacToeGame:
     def __init__(self):
@@ -14,14 +16,15 @@ class TicTacToeGame:
         self.symbols      = {}
         self.current_turn = None
         self.winner       = None
-        self.scores       = {"Ariel": 0, "Ella": 0}
+        self.scores       = {}
         self.first_player = None
 
     def reset(self):
-        self.board        = [''] * 9
-        self.winner       = None
+        self.board  = [''] * 9
+        self.winner = None
         if self.first_player:
-            other = "Ella" if self.first_player == "Ariel" else "Ariel"
+            players = list(self.connections.keys())
+            other   = next((p for p in players if p != self.first_player), self.first_player)
             self.first_player = other
             self.current_turn = other
 
@@ -31,8 +34,7 @@ class TicTacToeGame:
         for line in lines:
             if b[line[0]] and b[line[0]] == b[line[1]] == b[line[2]]:
                 return b[line[0]]
-        if all(b):
-            return 'draw'
+        if all(b): return 'draw'
         return None
 
     def state(self):
@@ -53,22 +55,21 @@ game = TicTacToeGame()
 async def broadcast(msg: dict):
     dead = []
     for p, ws in game.connections.items():
-        try:
-            await ws.send_text(json.dumps(msg))
-        except Exception:
-            dead.append(p)
-    for p in dead:
-        game.connections.pop(p, None)
+        try: await ws.send_text(json.dumps(msg))
+        except Exception: dead.append(p)
+    for p in dead: game.connections.pop(p, None)
 
 
 @router.websocket("/ws/{player}")
 async def tictactoe_ws(websocket: WebSocket, player: str):
-    if player not in ("Ariel", "Ella"):
+    if len(game.connections) >= MAX_PLAYERS and player not in game.connections:
         await websocket.close(code=4001)
         return
 
     await websocket.accept()
     game.connections[player] = websocket
+    if player not in game.scores:
+        game.scores[player] = 0
     registry.set_game(player, GAME_NAME)
 
     if len(game.connections) == 2:
@@ -77,8 +78,7 @@ async def tictactoe_ws(websocket: WebSocket, player: str):
         game.first_player = players[0]
         game.current_turn = players[0]
         game.reset()
-        for p in game.connections:
-            registry.clear_game(p)
+        for p in game.connections: registry.clear_game(p)
 
     await broadcast(game.state())
 
@@ -97,9 +97,10 @@ async def tictactoe_ws(websocket: WebSocket, player: str):
                         game.winner = result
                         if result != "draw":
                             winner_player = next(p for p, s in game.symbols.items() if s == result)
-                            game.scores[winner_player] += 1
+                            game.scores[winner_player] = game.scores.get(winner_player, 0) + 1
                     else:
-                        other = "Ella" if player == "Ariel" else "Ariel"
+                        players = list(game.connections.keys())
+                        other   = next(p for p in players if p != player)
                         game.current_turn = other
                     await broadcast(game.state())
 
@@ -110,7 +111,5 @@ async def tictactoe_ws(websocket: WebSocket, player: str):
     except WebSocketDisconnect:
         game.connections.pop(player, None)
         registry.clear_game(player)
-        game.board        = [''] * 9
-        game.winner       = None
-        game.current_turn = None
+        game.board = [''] * 9; game.winner = None; game.current_turn = None
         await broadcast({**game.state(), "message": f"{player} disconnected."})

@@ -1,5 +1,7 @@
 import os
+import uuid
 import json
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -41,14 +43,33 @@ if not PLAYERS_CONFIG:
         PLAYERS_CONFIG.append({"name": name, "color": color, "light": light, "bg": bg, "emoji": emoji})
         PINS[pin] = name
 
-app = FastAPI(title="Kids Game Hub")
+# ── Session persistence ────────────────────────────────────────────────────────
+SESSIONS_FILE = Path("/tmp/gfk_sessions.json")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _load_sessions() -> dict:
+    try:
+        if SESSIONS_FILE.exists():
+            return json.loads(SESSIONS_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_sessions(sessions: dict):
+    try:
+        SESSIONS_FILE.write_text(json.dumps(sessions))
+    except Exception:
+        pass
+
+# Load sessions on startup — survives Docker restarts if /tmp is preserved,
+# but more importantly survives uvicorn reloads (dev mode)
+active_sessions: dict[str, str] = _load_sessions()
+
+# Re-register all persisted sessions into the online registry
+for name in active_sessions:
+    registry.register(name)
+
+app = FastAPI(title="Kids Game Hub")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/players")
 async def get_players():
@@ -60,8 +81,33 @@ async def auth(payload: dict):
     name = PINS.get(pin)
     if not name:
         raise HTTPException(status_code=401, detail="Wrong PIN")
+    if name in active_sessions:
+        raise HTTPException(status_code=409, detail=f"{name} is already logged in on another device")
+    token = str(uuid.uuid4())
+    active_sessions[name] = token
+    _save_sessions(active_sessions)
     registry.register(name)
-    return {"player": name}
+    return {"player": name, "token": token}
+
+@app.post("/resume")
+async def resume(payload: dict):
+    """Called on page refresh — validates the session is still active."""
+    name  = payload.get("player", "")
+    token = payload.get("token", "")
+    if active_sessions.get(name) == token:
+        registry.register(name)  # re-register in case of restart
+        return {"ok": True, "player": name, "token": token}
+    raise HTTPException(status_code=401, detail="Session expired")
+
+@app.post("/logout")
+async def logout(payload: dict):
+    name  = payload.get("player", "")
+    token = payload.get("token", "")
+    if name and active_sessions.get(name) == token:
+        active_sessions.pop(name, None)
+        _save_sessions(active_sessions)
+        registry.unregister(name)
+    return {"ok": True}
 
 @app.get("/health")
 async def health():
