@@ -23,7 +23,7 @@ class SpinnerGame:
 
     def _reset(self):
         self.phase        = "waiting"
-        self.taps         = {"Ariel": 0, "Ella": 0}
+        self.taps:         dict[str, int] = {}
         self.tap_winner   = None
         self.pick_order   = []
         self.pieces       = [None] * TOTAL_PIECES
@@ -33,7 +33,8 @@ class SpinnerGame:
         self.spin_angle   = None
 
     def _alternate_order(self, first: str) -> list:
-        second = "Ella" if first == "Ariel" else "Ariel"
+        players = list(self.connections.keys())
+        second = next((p for p in players if p != first), first)
         return [first if i % 2 == 0 else second for i in range(TOTAL_PIECES)]
 
     def whose_turn(self) -> str | None:
@@ -131,6 +132,7 @@ async def spinner_ws(websocket: WebSocket, player: str):
             raw  = await websocket.receive_text()
             data = json.loads(raw)
             if data.get("type") == "tap" and game.phase == "tapping":
+                game.taps.setdefault(player, 0)
                 game.taps[player] += 1
                 await broadcast(game.state())
             elif data.get("type") == "claim" and game.phase == "picking":

@@ -27,16 +27,15 @@ export default function TicTacToe({ player, players, onBack }) {
   // Always safe — never null
   const p = safePlayer(players, player, 0)
 
-  // Derive opponent from server state (most reliable) or players map
-  const connectedOther = state?.connected?.find(n => n !== player)
-  const other          = connectedOther || Object.keys(players || {}).find(n => n !== player) || 'Opponent'
-  const op             = safePlayer(players, other, 1)
-
+  // Only derive opponent from server's connected list — never guess from players map
   const bothHere    = (state?.connected?.length ?? 0) >= 2
+  const other       = state?.connected?.find(n => n !== player) || null
+  const op          = other ? safePlayer(players, other, 1) : safePlayer(players, '__waiting__', 1)
+
   const mySymbol    = state?.symbols?.[player]    || '?'
-  const otherSymbol = state?.symbols?.[other]     || '?'
+  const otherSymbol = other ? (state?.symbols?.[other] || '?') : '?'
   const myScore     = state?.scores?.[player]     ?? 0
-  const otherScore  = state?.scores?.[other]      ?? 0
+  const otherScore  = other ? (state?.scores?.[other] ?? 0) : 0
   const myTurn      = state?.current_turn === player && bothHere
 
   const winLine = (() => {
@@ -146,16 +145,25 @@ export default function TicTacToe({ player, players, onBack }) {
 
         <div style={s.vs}>VS</div>
 
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontSize: 22 }}>{op.emoji}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, color: op.color, fontSize: 15 }}>{other}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              {bothHere ? `plays ${otherSymbol}` : 'not connected'}
+        {bothHere && other ? (
+          <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
+            <span style={{ fontSize: 22 }}>{op.emoji}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: op.color, fontSize: 15 }}>{other}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>plays {otherSymbol}</div>
             </div>
+            <span style={{ ...s.scoreNum, color: op.color }}>{otherScore}</span>
           </div>
-          <span style={{ ...s.scoreNum, color: op.color }}>{otherScore}</span>
-        </div>
+        ) : (
+          <div style={{ ...s.scoreCard, borderColor: '#e2e8f0', background: '#f8fafc' }}>
+            <span style={{ fontSize: 22 }}>👤</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: '#94a3b8', fontSize: 15 }}>Waiting...</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1' }}>not connected</div>
+            </div>
+            <span style={{ ...s.scoreNum, color: '#94a3b8' }}>0</span>
+          </div>
+        )}
       </div>
 
       {/* Status */}

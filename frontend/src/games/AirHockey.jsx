@@ -5,12 +5,18 @@ import { vibrate, VIBRATIONS } from '../vibrate'
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/airhockey/ws`
 
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
+function safe(players, name, idx = 0) {
+  if (players?.[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
 }
 
-export default function AirHockey({ player, onBack }) {
+export default function AirHockey({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const canvasRef           = useRef(null)
@@ -23,12 +29,10 @@ export default function AirHockey({ player, onBack }) {
   const scaleRef            = useRef(1)
   const offsetRef           = useRef({ ox: 0, oy: 0 })
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
-
-  // Ella sees the board flipped — she's always at the bottom
-  const flipped = player === 'Ella'
+  const p       = safe(players, player, 0)
+  const other   = state?.connected?.find(n => n !== player) || null
+  const op      = other ? safe(players, other, 1) : null
+  const flipped = (state?.connected ?? []).indexOf(player) === 1
 
   useEffect(() => { stateRef.current = state }, [state])
 
@@ -37,7 +41,7 @@ export default function AirHockey({ player, onBack }) {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
 
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus(`Waiting for ${other}...`) }
+    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Waiting for opponent...') }
 
     ws.onmessage = (e) => {
       if (!mountedRef.current) return
@@ -55,7 +59,7 @@ export default function AirHockey({ player, onBack }) {
         if (data.phase === 'countdown') playSound('rematch')
         if (data.phase === 'result') {
           const myS  = data.scores?.[player] ?? 0
-          const oppS = data.scores?.[other]  ?? 0
+          const oppS = data.scores?.[data.connected?.find(n => n !== player)] ?? 0
           if (myS > oppS)      { playSound('win');  vibrate(VIBRATIONS.win)  }
           else if (myS < oppS) { playSound('lose'); vibrate(VIBRATIONS.lose) }
           else                 { playSound('draw'); vibrate(VIBRATIONS.draw) }
@@ -64,13 +68,14 @@ export default function AirHockey({ player, onBack }) {
       }
 
       if (data.message)                    setStatus(data.message)
-      else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
+      else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else if (data.phase === 'countdown') setStatus(data.countdown > 0 ? `${data.countdown}...` : 'GO!')
       else if (data.phase === 'playing')   setStatus('')
       else if (data.phase === 'result') {
-        const myS  = data.scores?.[player] ?? 0
-        const oppS = data.scores?.[other]  ?? 0
-        setStatus(myS > oppS ? '🎉 You win!' : oppS > myS ? `${op.emoji} ${other} wins!` : '🤝 Draw!')
+        const myS   = data.scores?.[player] ?? 0
+        const oppKey = data.connected?.find(n => n !== player)
+        const oppS  = data.scores?.[oppKey] ?? 0
+        setStatus(myS > oppS ? '🎉 You win!' : oppS > myS ? `${oppKey} wins!` : '🤝 Draw!')
       }
     }
 
@@ -84,7 +89,7 @@ export default function AirHockey({ player, onBack }) {
     }
   }, [player])
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Canvas render loop ────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -112,13 +117,9 @@ export default function AirHockey({ player, onBack }) {
       const oy = (CH - bh * sc) / 2
       offsetRef.current = { ox, oy }
 
-      // Convert logical → canvas coords with optional flip
       const sx = (lx) => ox + lx * sc
-      const sy = (ly) => flipped
-        ? oy + (bh - ly) * sc   // flip Y for Ella
-        : oy + ly * sc
-
-      const sr = (r) => r * sc
+      const sy = (ly) => flipped ? oy + (bh - ly) * sc : oy + ly * sc
+      const sr = (r)  => r * sc
 
       ctx.clearRect(0, 0, CW, CH)
 
@@ -154,84 +155,52 @@ export default function AirHockey({ player, onBack }) {
       ctx.stroke()
 
       // Goals
-      const gw  = s.board.goal_w
-      const gy  = s.board.goal_y
-      const gx  = bw/2 - gw/2
+      const gw = s.board.goal_w
+      const gy = s.board.goal_y
+      const gx = bw/2 - gw/2
+      const opColor = op?.color || '#94a3b8'
 
-      // From THIS player's perspective:
-      // - MY goal is at the BOTTOM of the screen (opponent scores here)
-      // - OPPONENT'S goal is at the TOP of the screen (I score here)
-      // Ariel: my goal = bottom (y=H), opponent goal = top (y=0)
-      // Ella:  my goal = bottom visually = top logically (y=0), opponent goal = top visually = bottom logically (y=H)
-
-      const myGoalLogicalY    = flipped ? 0    : bh   // Ella's logical top, Ariel's logical bottom
-      const oppGoalLogicalY   = flipped ? bh   : 0
-
-      // My goal (bottom of screen for me)
-      const myGoalScreenY     = sy(myGoalLogicalY)
-      const oppGoalScreenY    = sy(oppGoalLogicalY)
-
-      // Draw my goal zone (bottom) — opponent scores here
-      ctx.fillStyle   = op.color + '55'
-      ctx.strokeStyle = op.color
+      // My goal (bottom of my screen) — opponent scores here
+      ctx.fillStyle   = opColor + '44'
+      ctx.strokeStyle = opColor
       ctx.lineWidth   = 3
-      const myGoalTop    = Math.min(myGoalScreenY, myGoalScreenY - sr(gy))
-      const oppGoalTop   = Math.min(oppGoalScreenY, oppGoalScreenY + sr(gy))
-
-      // Simpler: just draw rect from edge
-      // My goal at bottom of canvas
-      ctx.fillStyle = op.color + '44'
       ctx.fillRect(sx(gx), CH - sr(gy), gw*sc, sr(gy))
-      ctx.strokeStyle = op.color
       ctx.strokeRect(sx(gx), CH - sr(gy), gw*sc, sr(gy))
 
-      // Opponent goal at top of canvas
-      ctx.fillStyle = p.color + '44'
-      ctx.fillRect(sx(gx), oy, gw*sc, sr(gy))
+      // Opponent goal (top of my screen) — I score here
+      ctx.fillStyle   = p.color + '44'
       ctx.strokeStyle = p.color
+      ctx.fillRect(sx(gx), oy, gw*sc, sr(gy))
       ctx.strokeRect(sx(gx), oy, gw*sc, sr(gy))
 
       // Goal labels
-      ctx.font      = `bold ${sr(13)}px Nunito, sans-serif`
+      ctx.font      = `bold ${sr(13)}px sans-serif`
       ctx.textAlign = 'center'
-      // Top = opponent's goal (I score here)
       ctx.fillStyle = p.color
-      ctx.fillText(`↑ ${other}'s goal`, sx(bw/2), oy + sr(gy) * 0.7)
-      // Bottom = my goal (opponent scores here)
-      ctx.fillStyle = op.color
-      ctx.fillText(`↓ Your goal`, sx(bw/2), CH - oy - sr(gy) * 0.15)
+      ctx.fillText(other ? `↑ ${other}'s goal` : '↑ Opponent goal', sx(bw/2), oy + sr(gy) * 0.7)
+      ctx.fillStyle = opColor
+      ctx.fillText('↓ Your goal', sx(bw/2), CH - oy - sr(gy) * 0.15)
 
-      // Mallets — draw with flipped coordinates
+      // Mallets
       Object.entries(s.mallets || {}).forEach(([name, m]) => {
-        const mp = PLAYERS[name]
-        if (!mp) return
+        const mp = safe(players, name, s.connected?.indexOf(name) ?? 0)
         const mx = sx(m.x)
         const my = sy(m.y)
         const mr = sr(s.board.mallet_r)
 
         ctx.save()
         ctx.shadowColor = '#000a'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 4
-
-        ctx.beginPath()
-        ctx.arc(mx, my, mr, 0, Math.PI*2)
-        ctx.fillStyle = mp.color
-        ctx.fill()
-
-        ctx.beginPath()
-        ctx.arc(mx, my, mr * 0.55, 0, Math.PI*2)
-        ctx.fillStyle = '#fff'
-        ctx.fill()
-
-        ctx.beginPath()
-        ctx.arc(mx, my, mr * 0.18, 0, Math.PI*2)
-        ctx.fillStyle = mp.color
-        ctx.fill()
-
+        ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI*2)
+        ctx.fillStyle = mp.color; ctx.fill()
+        ctx.beginPath(); ctx.arc(mx, my, mr * 0.55, 0, Math.PI*2)
+        ctx.fillStyle = '#fff'; ctx.fill()
+        ctx.beginPath(); ctx.arc(mx, my, mr * 0.18, 0, Math.PI*2)
+        ctx.fillStyle = mp.color; ctx.fill()
         ctx.restore()
 
-        // Label
-        ctx.font      = `${sr(14)}px sans-serif`
+        ctx.font = `${sr(14)}px sans-serif`
         ctx.textAlign = 'center'
+        ctx.fillStyle = '#fff'
         ctx.fillText(mp.emoji + (name === player ? ' (you)' : ''), mx, my + mr + sr(16))
       })
 
@@ -240,26 +209,20 @@ export default function AirHockey({ player, onBack }) {
         const px = sx(s.puck.x)
         const py = sy(s.puck.y)
         const pr = sr(s.board.puck_r)
-
         ctx.save()
         ctx.shadowColor = '#000c'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3
-        ctx.beginPath()
-        ctx.arc(px, py, pr, 0, Math.PI*2)
-        ctx.fillStyle = '#111'
-        ctx.fill()
+        ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI*2)
+        ctx.fillStyle = '#111'; ctx.fill()
         ctx.restore()
-
-        ctx.beginPath()
-        ctx.arc(px - pr*0.25, py - pr*0.25, pr*0.3, 0, Math.PI*2)
-        ctx.fillStyle = '#ffffff33'
-        ctx.fill()
+        ctx.beginPath(); ctx.arc(px - pr*0.25, py - pr*0.25, pr*0.3, 0, Math.PI*2)
+        ctx.fillStyle = '#ffffff33'; ctx.fill()
       }
 
       // Countdown overlay
       if (s.countdown !== null && s.countdown !== undefined && s.phase === 'countdown') {
         ctx.fillStyle = 'rgba(0,0,0,0.5)'
         ctx.fillRect(0, 0, CW, CH)
-        ctx.font      = `900 ${CW * 0.22}px Nunito, sans-serif`
+        ctx.font      = `900 ${CW * 0.22}px sans-serif`
         ctx.textAlign = 'center'
         ctx.fillStyle = s.countdown === 0 ? '#fbbf24' : '#fff'
         ctx.shadowColor = '#000'; ctx.shadowBlur = 20
@@ -268,13 +231,13 @@ export default function AirHockey({ player, onBack }) {
       }
 
       // Waiting overlay
-      if (!s || s.connected?.length < 2) {
+      if (!s || (s.connected?.length ?? 0) < 2) {
         ctx.fillStyle = 'rgba(0,0,0,0.4)'
         ctx.fillRect(0, 0, CW, CH)
-        ctx.font      = `bold ${CW*0.05}px Nunito, sans-serif`
+        ctx.font      = `bold ${CW*0.05}px sans-serif`
         ctx.textAlign = 'center'
         ctx.fillStyle = '#fff'
-        ctx.fillText(`Waiting for ${other}...`, CW/2, CH/2)
+        ctx.fillText('Waiting for opponent...', CW/2, CH/2)
       }
 
       animRef.current = requestAnimationFrame(render)
@@ -289,23 +252,18 @@ export default function AirHockey({ player, onBack }) {
     const canvas = canvasRef.current
     const s      = stateRef.current
     if (!canvas || !s?.board) return
+    if (s.phase !== 'playing') return
 
     const rect = canvas.getBoundingClientRect()
     const sc   = scaleRef.current
     const { ox, oy } = offsetRef.current
-    const bw   = s.board.w
     const bh   = s.board.h
 
     const cssX = clientX - rect.left
     const cssY = clientY - rect.top
+    const lx   = (cssX - ox) / sc
+    const ly   = flipped ? bh - (cssY - oy) / sc : (cssY - oy) / sc
 
-    // CSS → logical, accounting for flip
-    const lx = (cssX - ox) / sc
-    const ly = flipped
-      ? bh - (cssY - oy) / sc
-      : (cssY - oy) / sc
-
-    if (stateRef.current?.phase !== 'playing') return
     wsRef.current?.send(JSON.stringify({ type: 'mallet', x: lx, y: ly }))
   }, [flipped])
 
@@ -319,8 +277,9 @@ export default function AirHockey({ player, onBack }) {
   }
 
   const phase      = state?.phase
-  const myScore    = state?.scores?.[player]  ?? 0
-  const otherScore = state?.scores?.[other]   ?? 0
+  const bothHere   = (state?.connected?.length ?? 0) >= 2
+  const myScore    = state?.scores?.[player] ?? 0
+  const otherScore = other ? (state?.scores?.[other] ?? 0) : 0
   const myWon      = phase === 'result' && myScore > otherScore
   const oppWon     = phase === 'result' && otherScore > myScore
 
@@ -328,15 +287,16 @@ export default function AirHockey({ player, onBack }) {
   const canvasH = Math.round(canvasW * (700 / 400))
 
   return (
-    <div style={{ ...s.wrap, background: p.bg }}>
-      <div style={s.header}>
-        <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
-        <div style={s.title}>🏒 Air Hockey</div>
+    <div style={{ ...st.wrap, background: p.bg }}>
+      <div style={st.header}>
+        <button onClick={onBack} style={{ ...st.backBtn, color: p.color }}>← Back</button>
+        <div style={st.title}>🏒 Air Hockey</div>
         <div style={{ width: 64 }} />
       </div>
 
-      <div style={s.scoreBar}>
-        <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
+      {/* Score bar */}
+      <div style={st.scoreBar}>
+        <div style={{ ...st.scoreCard, borderColor: p.color, background: p.light }}>
           <span style={{ fontSize: 20 }}>{p.emoji}</span>
           <span style={{ fontWeight: 900, color: p.color, fontSize: 28 }}>{myScore}</span>
         </div>
@@ -344,18 +304,27 @@ export default function AirHockey({ player, onBack }) {
           <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>FIRST TO</div>
           <div style={{ fontSize: 20, fontWeight: 900, color: '#1e1b4b' }}>{state?.win_score ?? 5}</div>
         </div>
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontWeight: 900, color: op.color, fontSize: 28 }}>{otherScore}</span>
-          <span style={{ fontSize: 20 }}>{op.emoji}</span>
-        </div>
+        {bothHere && op ? (
+          <div style={{ ...st.scoreCard, borderColor: op.color, background: op.light }}>
+            <span style={{ fontWeight: 900, color: op.color, fontSize: 28 }}>{otherScore}</span>
+            <span style={{ fontSize: 20 }}>{op.emoji}</span>
+          </div>
+        ) : (
+          <div style={{ ...st.scoreCard, borderColor: '#e2e8f0', background: '#f8fafc' }}>
+            <span style={{ fontWeight: 900, color: '#94a3b8', fontSize: 28 }}>0</span>
+            <span style={{ fontSize: 20 }}>👤</span>
+          </div>
+        )}
       </div>
 
+      {/* Status */}
       {status !== '' && (
-        <div style={{ ...s.status, background: myWon ? p.light : oppWon ? op.light : '#f1f5f9', color: myWon ? p.color : oppWon ? op.color : '#64748b' }}>
+        <div style={{ ...st.status, background: myWon ? p.light : oppWon ? (op?.light || '#f1f5f9') : '#f1f5f9', color: myWon ? p.color : oppWon ? (op?.color || '#64748b') : '#64748b' }}>
           {status}
         </div>
       )}
 
+      {/* Canvas */}
       <div style={{ borderRadius: 12, overflow: 'hidden', boxShadow: '0 8px 32px #0004', touchAction: 'none' }}>
         <canvas
           ref={canvasRef}
@@ -375,19 +344,19 @@ export default function AirHockey({ player, onBack }) {
 
       {phase === 'result' && (
         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 48 }}>{myWon ? p.emoji : oppWon ? op.emoji : '🤝'}</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: myWon ? p.color : oppWon ? op.color : '#64748b' }}>
+          <div style={{ fontSize: 48 }}>{myWon ? p.emoji : oppWon ? (op?.emoji || '🏒') : '🤝'}</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: myWon ? p.color : oppWon ? (op?.color || '#64748b') : '#64748b' }}>
             {myWon ? 'You win!' : oppWon ? `${other} wins!` : "It's a draw!"}
           </div>
           <div style={{ fontSize: 14, color: '#94a3b8', fontWeight: 700 }}>{myScore} – {otherScore}</div>
-          <button onClick={sendReset} style={{ ...s.bigBtn, background: p.color }}>🔄 Play Again</button>
+          <button onClick={sendReset} style={{ ...st.bigBtn, background: p.color }}>🔄 Play Again</button>
         </div>
       )}
     </div>
   )
 }
 
-const s = {
+const st = {
   wrap:      { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 20, gap: 10 },
   header:    { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
   backBtn:   { background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', padding: '6px 12px', borderRadius: 10, fontFamily: 'inherit' },

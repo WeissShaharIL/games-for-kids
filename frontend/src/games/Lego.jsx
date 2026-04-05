@@ -16,9 +16,15 @@ const STUD_R   = 6           // radius of stud
 const BOARD_COLS = 16
 const BOARD_ROWS = 16
 
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
+function safe(players, name, idx = 0) {
+  if (players?.[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
 }
 
 const BRICK_SIZES = [
@@ -252,7 +258,7 @@ function Palette({ selectedColor, selectedSize, onColorChange, onSizeChange, onC
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function Lego({ player, onBack }) {
+export default function Lego({ player, players, onBack }) {
   const [bricks, setBricks]         = useState([])
   const [status, setStatus]         = useState('Connecting...')
   const [selectedColor, setColor]   = useState('#e53e3e')
@@ -268,8 +274,8 @@ export default function Lego({ player, onBack }) {
 
   useEffect(() => { bricksRef.current = bricks }, [bricks])
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
+  const p     = safe(players, player, 0)
+  const other = state?.connected?.find(n => n !== player) || null
 
   // ── Compute canvas origin (center-top of board) ───────────────────────────
   const computeOrigin = (canvas) => {
@@ -291,7 +297,7 @@ export default function Lego({ player, onBack }) {
       const data = JSON.parse(e.data)
       if (data.bricks !== undefined) setBricks(data.bricks)
       if (data.message) setStatus(data.message)
-      else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
+      else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else setStatus('🧱 Building together!')
     }
     ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
