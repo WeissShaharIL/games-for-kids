@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
-import { getPlayer } from '../playerUtils'
+import { getPlayer } from '../PlayerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/balloons/ws`

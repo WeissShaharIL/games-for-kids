@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
-import { getPlayer } from '../playerUtils'
+import { getPlayer } from '../PlayerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/connect4/ws`
