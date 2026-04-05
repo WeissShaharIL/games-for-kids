@@ -19,7 +19,6 @@ DIRS = {
 }
 OPPOSITE = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
 
-# Starting positions for up to 4 players
 STARTS = [
     {"body": [(10, 3),  (10, 2),  (10, 1)],  "dir": "RIGHT"},
     {"body": [(10, 16), (10, 17), (10, 18)], "dir": "LEFT"},
@@ -80,7 +79,6 @@ class SnakeGame:
             return False
 
         ate_apple = False
-
         for player, snake in self.snakes.items():
             if not snake["alive"]:
                 continue
@@ -93,30 +91,25 @@ class SnakeGame:
                 continue
 
             snake["body"].insert(0, new_head)
-
             if tuple(new_head) == tuple(self.apple):
                 ate_apple = True
                 self.scores[player] = self.scores.get(player, 0) + 1
             else:
                 snake["body"].pop()
 
-        # Collision detection
         all_bodies = {p: set(map(tuple, s["body"])) for p, s in self.snakes.items() if s["alive"]}
         for player, snake in self.snakes.items():
             if not snake["alive"]:
                 continue
             head = tuple(snake["body"][0])
-            # Self collision
             if head in set(map(tuple, snake["body"][1:])):
                 snake["alive"] = False
                 continue
-            # Other snake collision
             for other, bodies in all_bodies.items():
                 if other != player and head in bodies:
                     snake["alive"] = False
                     break
 
-        # Head-on collision
         heads = {p: tuple(s["body"][0]) for p, s in self.snakes.items() if s["alive"]}
         head_list = list(heads.values())
         for p, h in heads.items():
@@ -170,7 +163,6 @@ async def broadcast(message: dict):
 
 
 async def game_loop():
-    # Countdown
     for n in [3, 2, 1]:
         if len(game.connections) < 2:
             game.countdown = None
@@ -184,18 +176,14 @@ async def game_loop():
     await asyncio.sleep(0.1)
     game.countdown = None
 
-    # Tick loop
     while True:
         await asyncio.sleep(TICK_RATE)
-
         if len(game.connections) < 2:
             game._reset_board()
             await broadcast(game.state())
             return
-
         running = game.tick()
         await broadcast(game.state())
-
         if not running:
             await asyncio.sleep(2.0)
             if len(game.connections) == 2:
@@ -212,7 +200,6 @@ async def snake_ws(websocket: WebSocket, player: str):
     game.connections[player] = websocket
     game.scores.setdefault(player, 0)
     registry.set_game(player, GAME_NAME)
-
     game._reset_board()
     await broadcast(game.state())
 
@@ -226,15 +213,14 @@ async def snake_ws(websocket: WebSocket, player: str):
             raw  = await websocket.receive_text()
             data = json.loads(raw)
             if data.get("type") == "dir":
-                if game.countdown is None:
-                    game.set_dir(player, data.get("dir", "").upper())
+                # Accept direction input always — even during countdown
+                game.set_dir(player, data.get("dir", "").upper())
             elif data.get("type") == "reset":
                 game.stop_loop()
                 game._reset_board()
                 if len(game.connections) == 2:
                     game.loop_task = asyncio.create_task(game_loop())
                 await broadcast(game.state())
-
     except WebSocketDisconnect:
         game.connections.pop(player, None)
         registry.clear_game(player)

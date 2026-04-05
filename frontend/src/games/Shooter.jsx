@@ -16,6 +16,40 @@ function safe(players, name, idx = 0) {
   return FALLBACKS[idx % FALLBACKS.length]
 }
 
+// Gunshot sound using Web Audio API
+function playGunshot() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+
+    // Sharp noise burst
+    const bufferSize = ctx.sampleRate * 0.08
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3)
+    }
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+
+    // Low-pass filter for that muffled bang
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(800, ctx.currentTime)
+    filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.08)
+
+    // Volume envelope
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(1.2, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+
+    source.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+    source.start()
+    setTimeout(() => ctx.close(), 300)
+  } catch (e) {}
+}
+
 function BulletBar({ count, max, color }) {
   return (
     <div style={{ display: 'flex', gap: 5, justifyContent: 'center', padding: '8px 0' }}>
@@ -35,14 +69,16 @@ function BulletBar({ count, max, color }) {
 }
 
 export default function Shooter({ player, players, onBack }) {
-  const [state, setState]    = useState(null)
-  const [floatMsg, setFloat] = useState(null)
-  const [figKey, setFigKey]  = useState(0)
-  const wsRef                = useRef(null)
-  const mountedRef           = useRef(true)
-  const cooldown             = useRef(false)
-  const prevPhase            = useRef(null)
-  const prevFigId            = useRef(null)
+  const [state, setState]      = useState(null)
+  const [floatMsg, setFloat]   = useState(null)
+  const [figKey, setFigKey]    = useState(0)
+  const [flash, setFlash]      = useState(null)  // 'hit' | 'miss' | 'wrong'
+  const [muzzle, setMuzzle]    = useState(false) // muzzle flash on button
+  const wsRef                  = useRef(null)
+  const mountedRef             = useRef(true)
+  const cooldown               = useRef(false)
+  const prevPhase              = useRef(null)
+  const prevFigId              = useRef(null)
 
   const p = safe(players, player, 0)
 
@@ -79,20 +115,34 @@ export default function Shooter({ player, players, onBack }) {
     return () => { mountedRef.current = false; wsRef.current?.close() }
   }, [connect])
 
+  const triggerFlash = (type) => {
+    setFlash(type)
+    setMuzzle(true)
+    setTimeout(() => { if (mountedRef.current) { setFlash(null); setMuzzle(false) } }, 180)
+  }
+
   const shoot = () => {
     if (!state || state.phase !== 'playing' || cooldown.current) return
     if ((state.bullets?.[player] ?? 0) <= 0) return
     cooldown.current = true
     setTimeout(() => { cooldown.current = false }, 250)
-    const fig = state.figure
+
+    // Always play gunshot sound
+    playGunshot()
     vibrate(VIBRATIONS.tap)
+
+    const fig = state.figure
     if (!fig) {
-      playSound('error'); showFloat('💨 Miss!', '#94a3b8')
+      triggerFlash('miss')
+      showFloat('💨 Miss!', '#94a3b8')
     } else if (fig.type === 'villain') {
-      playSound('place'); showFloat('+1 🎯', p.color)
+      triggerFlash('hit')
+      showFloat('+1 🎯', p.color)
     } else {
-      playSound('error'); showFloat('-1 💔', '#ef4444')
+      triggerFlash('wrong')
+      showFloat('-1 💔', '#ef4444')
     }
+
     wsRef.current?.send(JSON.stringify({ type: 'shoot' }))
   }
 
@@ -117,6 +167,13 @@ export default function Shooter({ player, players, onBack }) {
   const bothHere   = connected.length >= 2
   const isVillain  = figure?.type === 'villain'
 
+  // Flash overlay colors
+  const flashColors = {
+    hit:   'rgba(34,197,94,0.25)',
+    miss:  'rgba(148,163,184,0.18)',
+    wrong: 'rgba(239,68,68,0.28)',
+  }
+
   // ── Waiting ────────────────────────────────────────────────────────────────
   if (phase === 'waiting') return (
     <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' }}>
@@ -136,10 +193,12 @@ export default function Shooter({ player, players, onBack }) {
             </div>
           )
         })}
-        {!bothHere && <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.05)', border:'2px solid rgba(255,255,255,0.1)', borderRadius:20, padding:'8px 16px' }}>
-          <span style={{ fontSize:20 }}>👤</span>
-          <span style={{ color:'#475569' }}>Waiting...</span>
-        </div>}
+        {!bothHere && (
+          <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.05)', border:'2px solid rgba(255,255,255,0.1)', borderRadius:20, padding:'8px 16px' }}>
+            <span style={{ fontSize:20 }}>👤</span>
+            <span style={{ color:'#475569' }}>Waiting...</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -170,7 +229,7 @@ export default function Shooter({ player, players, onBack }) {
           {sorted.map(([name, score], i) => {
             const pi = safe(players, name, i)
             return (
-              <div key={name} style={{ display:'flex', alignItems:'center', gap:12, background:name===player ? `${pi.color}22` : 'rgba(255,255,255,0.05)', border:`2px solid ${name===player ? pi.color : 'rgba(255,255,255,0.1)'}`, borderRadius:16, padding:'12px 20px', marginBottom:10 }}>
+              <div key={name} style={{ display:'flex', alignItems:'center', gap:12, background:name===player?`${pi.color}22`:'rgba(255,255,255,0.05)', border:`2px solid ${name===player?pi.color:'rgba(255,255,255,0.1)'}`, borderRadius:16, padding:'12px 20px', marginBottom:10 }}>
                 <span style={{ fontSize:24 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
                 <span style={{ fontSize:20 }}>{pi.emoji}</span>
                 <span style={{ fontWeight:800, color:name===player?pi.color:'#fff', flex:1, fontSize:16 }}>{name}</span>
@@ -189,10 +248,20 @@ export default function Shooter({ player, players, onBack }) {
 
   // ── Playing ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none' }}>
+    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none', position:'relative', overflow:'hidden' }}>
+
+      {/* Screen flash overlay */}
+      {flash && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          background: flashColors[flash],
+          pointerEvents: 'none',
+          animation: 'screenFlash 0.18s ease-out forwards',
+        }} />
+      )}
 
       {/* Header */}
-      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 16px', background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 16px', background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.07)', zIndex:10 }}>
         <button onClick={onBack} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#475569' }}>←</button>
         <div style={{ display:'flex', gap:24 }}>
           {connected.map((name, i) => {
@@ -226,13 +295,12 @@ export default function Shooter({ player, players, onBack }) {
           </div>
         )}
 
-        {/* Target */}
+        {/* Target box */}
         <div
           key={figKey}
           onPointerDown={shoot}
           style={{
-            width: 230, height: 230,
-            borderRadius: 36,
+            width: 230, height: 230, borderRadius: 36,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer',
             background: figure
@@ -248,7 +316,7 @@ export default function Shooter({ player, players, onBack }) {
               : 'none',
             transition: 'border-color 0.15s, box-shadow 0.15s',
             animation: figure ? 'popIn 0.3s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
-            userSelect: 'none',
+            position: 'relative', overflow: 'hidden',
           }}
         >
           {figure ? (
@@ -265,14 +333,47 @@ export default function Shooter({ player, players, onBack }) {
           )}
         </div>
 
+        {/* Big shoot button with muzzle flash */}
+        <div style={{ position: 'relative', marginTop: 28 }}>
+          {/* Muzzle flash ring */}
+          {muzzle && (
+            <div style={{
+              position: 'absolute', inset: -8, borderRadius: '50%',
+              background: `radial-gradient(circle, ${p.color}88 0%, transparent 70%)`,
+              animation: 'muzzleFlash 0.18s ease-out forwards',
+              pointerEvents: 'none', zIndex: 5,
+            }} />
+          )}
+          <button
+            onPointerDown={shoot}
+            disabled={myBullets === 0}
+            style={{
+              width: 90, height: 90, borderRadius: '50%',
+              border: `3px solid ${myBullets > 0 ? p.color : '#1e293b'}`,
+              background: myBullets > 0
+                ? `radial-gradient(circle at 40% 35%, ${p.color}cc, ${p.color})`
+                : '#0f172a',
+              fontSize: 36,
+              cursor: myBullets > 0 ? 'pointer' : 'not-allowed',
+              boxShadow: myBullets > 0 ? `0 0 24px ${p.color}55, 0 4px 12px #0006` : 'none',
+              transition: 'all 0.15s',
+              transform: muzzle ? 'scale(0.92)' : 'scale(1)',
+              position: 'relative', zIndex: 10,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            🔫
+          </button>
+        </div>
+
         {myBullets === 0 && (
-          <div style={{ marginTop:20, color:'#ef4444', fontSize:15, fontWeight:800, letterSpacing:1 }}>
+          <div style={{ marginTop:16, color:'#ef4444', fontSize:15, fontWeight:800, letterSpacing:1 }}>
             🚫 OUT OF BULLETS
           </div>
         )}
 
-        <div style={{ marginTop:14, color:'#334155', fontSize:13, fontWeight:700, letterSpacing:1, textTransform:'uppercase' }}>
-          {figure ? 'Tap target to shoot' : 'Wait for target...'}
+        <div style={{ marginTop:10, color:'#334155', fontSize:12, fontWeight:700, letterSpacing:1, textTransform:'uppercase' }}>
+          {figure ? 'Tap target or button' : 'Wait for target...'}
         </div>
       </div>
 
@@ -282,9 +383,17 @@ export default function Shooter({ player, players, onBack }) {
           to   { opacity:0; transform:translateX(-50%) translateY(-70px); }
         }
         @keyframes popIn {
-          0%   { transform:scale(0.3); opacity:0; }
-          70%  { transform:scale(1.08); }
-          100% { transform:scale(1); opacity:1; }
+          0%  { transform:scale(0.3); opacity:0; }
+          70% { transform:scale(1.08); }
+          100%{ transform:scale(1); opacity:1; }
+        }
+        @keyframes screenFlash {
+          0%   { opacity:1; }
+          100% { opacity:0; }
+        }
+        @keyframes muzzleFlash {
+          0%   { opacity:1; transform:scale(0.8); }
+          100% { opacity:0; transform:scale(1.4); }
         }
       `}</style>
     </div>

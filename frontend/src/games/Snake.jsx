@@ -16,51 +16,52 @@ function safe(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
-  return `${r},${g},${b}`
-}
 function darken(hex, amt = 40) {
-  const r = Math.max(0,parseInt(hex.slice(1,3),16)-amt)
-  const g = Math.max(0,parseInt(hex.slice(3,5),16)-amt)
-  const b = Math.max(0,parseInt(hex.slice(5,7),16)-amt)
+  const r = Math.max(0, parseInt(hex.slice(1,3),16) - amt)
+  const g = Math.max(0, parseInt(hex.slice(3,5),16) - amt)
+  const b = Math.max(0, parseInt(hex.slice(5,7),16) - amt)
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`
 }
 
 function DPadBtn({ label, dir, color, onPress }) {
   const [pressed, setPressed] = useState(false)
+  const handleDown = (e) => {
+    e.preventDefault()
+    setPressed(true)
+    vibrate([15])   // short tap feedback
+    onPress(dir)
+  }
   return (
     <button
-      onPointerDown={(e) => { e.preventDefault(); setPressed(true); onPress(dir) }}
+      onPointerDown={handleDown}
       onPointerUp={() => setPressed(false)}
       onPointerLeave={() => setPressed(false)}
       style={{
-        width: 68, height: 68, border: 'none', borderRadius: 16,
+        width: 72, height: 72, border: 'none', borderRadius: 18,
         background: pressed ? color : `${color}22`,
         color: pressed ? '#fff' : color,
-        fontSize: 24, fontWeight: 900, cursor: 'pointer',
+        fontSize: 26, fontWeight: 900, cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: pressed ? `0 2px 0 ${darken(color)}88` : `0 5px 0 ${color}44`,
         transform: pressed ? 'translateY(3px)' : 'translateY(0)',
         transition: 'all 0.08s', outline: 'none',
+        WebkitTapHighlightColor: 'transparent',
       }}
     >{label}</button>
   )
 }
 
 export default function Snake({ player, players, onBack }) {
-  const [state, setState]   = useState(null)
+  const [state, setState]  = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const canvasRef   = useRef(null)
   const wsRef       = useRef(null)
   const mountedRef  = useRef(true)
   const stateRef    = useRef(null)
   const playersRef  = useRef(players)
-  const playerRef   = useRef(player)
+  const animIdRef   = useRef(null)
   const prevWinner  = useRef(null)
   const touchStart  = useRef(null)
-  const lastDir     = useRef(null)
-  const animIdRef   = useRef(null)
 
   useEffect(() => { stateRef.current = state }, [state])
   useEffect(() => { playersRef.current = players }, [players])
@@ -76,9 +77,9 @@ export default function Snake({ player, players, onBack }) {
       const data = JSON.parse(e.data)
       setState(data)
       if (data.winner && data.winner !== prevWinner.current) {
-        if (data.winner === player) { playSound('win');  vibrate(VIBRATIONS.win)  }
-        else if (data.winner !== 'draw') { playSound('lose'); vibrate(VIBRATIONS.lose) }
-        else playSound('draw')
+        if (data.winner === player)       { playSound('win');  vibrate(VIBRATIONS.win)  }
+        else if (data.winner !== 'draw')  { playSound('lose'); vibrate(VIBRATIONS.lose) }
+        else                              { playSound('draw');  vibrate(VIBRATIONS.draw) }
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
@@ -87,7 +88,7 @@ export default function Snake({ player, players, onBack }) {
       else if (connected.length < 2)   setStatus('Waiting for opponent...')
       else if (data.countdown > 0)     setStatus(`Starting in ${data.countdown}...`)
       else if (data.countdown === 0)   setStatus('Go! 🐍')
-      else if (data.winner === 'draw') setStatus("🤝 Draw!")
+      else if (data.winner === 'draw') setStatus('🤝 Draw!')
       else if (data.winner === player) setStatus('🎉 You won!')
       else if (data.winner)            setStatus(`${data.winner} wins!`)
       else                             setStatus('🐍 Game on!')
@@ -102,75 +103,56 @@ export default function Snake({ player, players, onBack }) {
     return () => { mountedRef.current = false; wsRef.current?.close() }
   }, [connect])
 
-  // ── Canvas render loop ──────────────────────────────────────────────────────
+  // Canvas render loop
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
 
-    function drawRoundRect(x, y, w, h, r) {
-      ctx.beginPath()
-      ctx.roundRect(x, y, w, h, r)
-    }
-
     function drawSegment(col, row, color, isHead, dir) {
       const x = col * CELL, y = row * CELL
-      const r = isHead ? 6 : 4
       const pad = isHead ? 1 : 2
-
-      // Body gradient
+      const r   = isHead ? 6 : 4
       const grad = ctx.createRadialGradient(x+CELL/2, y+CELL/2-2, 1, x+CELL/2, y+CELL/2, CELL*0.7)
       grad.addColorStop(0, color + 'ff')
       grad.addColorStop(1, darken(color, 30) + 'ff')
       ctx.fillStyle = grad
-      drawRoundRect(x+pad, y+pad, CELL-pad*2, CELL-pad*2, r)
+      ctx.beginPath()
+      ctx.roundRect(x+pad, y+pad, CELL-pad*2, CELL-pad*2, r)
       ctx.fill()
-
-      // Shine
-      ctx.fillStyle = 'rgba(255,255,255,0.25)'
+      ctx.fillStyle = 'rgba(255,255,255,0.2)'
       ctx.beginPath()
       ctx.ellipse(x+CELL*0.35, y+CELL*0.3, CELL*0.18, CELL*0.12, -0.3, 0, Math.PI*2)
       ctx.fill()
-
       if (isHead) {
-        // Eyes
-        const eyeOffsets = { UP: [[-4,3],[4,3]], DOWN: [[-4,-3],[4,-3]], LEFT: [[3,-4],[3,4]], RIGHT: [[-3,-4],[-3,4]] }
-        const offsets = eyeOffsets[dir] || [[-4,-3],[4,-3]]
+        const eyeMap = { UP:[[-4,3],[4,3]], DOWN:[[-4,-3],[4,-3]], LEFT:[[3,-4],[3,4]], RIGHT:[[-3,-4],[-3,4]] }
+        const eyes = eyeMap[dir] || [[-3,-3],[3,-3]]
         ctx.fillStyle = '#fff'
-        offsets.forEach(([ox,oy]) => {
-          ctx.beginPath(); ctx.arc(x+CELL/2+ox, y+CELL/2+oy, 3, 0, Math.PI*2); ctx.fill()
-        })
-        ctx.fillStyle = '#1e293b'
-        offsets.forEach(([ox,oy]) => {
-          ctx.beginPath(); ctx.arc(x+CELL/2+ox+0.5, y+CELL/2+oy+0.5, 1.5, 0, Math.PI*2); ctx.fill()
-        })
+        eyes.forEach(([ox,oy]) => { ctx.beginPath(); ctx.arc(x+CELL/2+ox, y+CELL/2+oy, 2.8, 0, Math.PI*2); ctx.fill() })
+        ctx.fillStyle = '#111'
+        eyes.forEach(([ox,oy]) => { ctx.beginPath(); ctx.arc(x+CELL/2+ox+0.5, y+CELL/2+oy+0.5, 1.4, 0, Math.PI*2); ctx.fill() })
       }
     }
 
     function draw() {
       animIdRef.current = requestAnimationFrame(draw)
-      const s = stateRef.current
+      const s  = stateRef.current
       const pl = playersRef.current
-      const me = playerRef.current
-
       const rows = s?.rows || 20
       const cols = s?.cols || 20
-      const W = cols * CELL
-      const H = rows * CELL
-
+      const W = cols * CELL, H = rows * CELL
       if (canvas.width !== W)  canvas.width  = W
       if (canvas.height !== H) canvas.height = H
 
-      // Background — checkerboard grid
-      for (let r = 0; r < rows; r++) {
+      // Checkerboard
+      for (let r = 0; r < rows; r++)
         for (let c = 0; c < cols; c++) {
           ctx.fillStyle = (r + c) % 2 === 0 ? '#0f2744' : '#0d2340'
           ctx.fillRect(c*CELL, r*CELL, CELL, CELL)
         }
-      }
 
-      // Border glow
-      ctx.strokeStyle = safe(pl, me, 0).color + '66'
+      const myP = safe(pl, player, 0)
+      ctx.strokeStyle = myP.color + '44'
       ctx.lineWidth = 2
       ctx.strokeRect(1, 1, W-2, H-2)
 
@@ -182,35 +164,26 @@ export default function Snake({ player, players, onBack }) {
       if (s.apple) {
         const [ar, ac] = s.apple
         const ax = ac*CELL + CELL/2, ay = ar*CELL + CELL/2
-        // Glow
         const glow = ctx.createRadialGradient(ax, ay, 0, ax, ay, CELL)
-        glow.addColorStop(0, 'rgba(239,68,68,0.4)')
+        glow.addColorStop(0, 'rgba(239,68,68,0.5)')
         glow.addColorStop(1, 'rgba(239,68,68,0)')
         ctx.fillStyle = glow
         ctx.beginPath(); ctx.arc(ax, ay, CELL, 0, Math.PI*2); ctx.fill()
-        // Apple body
         ctx.fillStyle = '#ef4444'
         ctx.beginPath(); ctx.arc(ax, ay, CELL/2-2, 0, Math.PI*2); ctx.fill()
-        ctx.fillStyle = 'rgba(255,255,255,0.3)'
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'
         ctx.beginPath(); ctx.arc(ax-3, ay-3, 3, 0, Math.PI*2); ctx.fill()
-        // Stem
         ctx.strokeStyle = '#15803d'; ctx.lineWidth = 2
         ctx.beginPath(); ctx.moveTo(ax, ay-CELL/2+2); ctx.lineTo(ax+3, ay-CELL/2-3); ctx.stroke()
       }
 
       // Snakes
       if (s.snakes) {
-        Object.entries(s.snakes).forEach(([name, snake], idx) => {
-          if (!snake.body || snake.body.length === 0) return
+        Object.entries(s.snakes).forEach(([name, snake]) => {
+          if (!snake.body?.length) return
           const pi = safe(pl, name, connected.indexOf(name))
-          if (!snake.alive) {
-            // Dead — draw faded
-            ctx.globalAlpha = 0.3
-          }
-          snake.body.forEach((seg, i) => {
-            const isHead = i === 0
-            drawSegment(seg[1], seg[0], pi.color, isHead, snake.dir)
-          })
+          if (!snake.alive) ctx.globalAlpha = 0.25
+          snake.body.forEach((seg, i) => drawSegment(seg[1], seg[0], pi.color, i === 0, snake.dir))
           ctx.globalAlpha = 1
         })
       }
@@ -231,9 +204,9 @@ export default function Snake({ player, players, onBack }) {
       if (s.winner) {
         ctx.fillStyle = 'rgba(0,0,0,0.65)'
         ctx.fillRect(0, 0, W, H)
-        const msg = s.winner === me ? '🎉 You won!' : s.winner === 'draw' ? '🤝 Draw!' : `${s.winner} wins!`
+        const msg = s.winner === player ? '🎉 You won!' : s.winner === 'draw' ? '🤝 Draw!' : `${s.winner} wins!`
         ctx.fillStyle = '#fff'
-        ctx.font = `bold ${CELL*1.6}px sans-serif`
+        ctx.font = `bold ${CELL*1.5}px sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(msg, W/2, H/2)
@@ -243,19 +216,23 @@ export default function Snake({ player, players, onBack }) {
 
     draw()
     return () => cancelAnimationFrame(animIdRef.current)
-  }, []) // run once — reads from refs
+  }, [player, players])
 
   // Keyboard
   useEffect(() => {
     const MAP = { ArrowUp:'UP', ArrowDown:'DOWN', ArrowLeft:'LEFT', ArrowRight:'RIGHT', w:'UP', s:'DOWN', a:'LEFT', d:'RIGHT' }
     const onKey = (e) => {
       const dir = MAP[e.key]
-      if (dir && dir !== lastDir.current) { lastDir.current = dir; wsRef.current?.send(JSON.stringify({ type:'dir', dir })) }
+      if (dir) {
+        e.preventDefault()
+        wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Touch swipe on canvas
   const onTouchStart = (e) => { touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }
   const onTouchEnd = (e) => {
     if (!touchStart.current) return
@@ -263,12 +240,16 @@ export default function Snake({ player, players, onBack }) {
     const dy = e.changedTouches[0].clientY - touchStart.current.y
     if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'RIGHT' : 'LEFT') : (dy > 0 ? 'DOWN' : 'UP')
-    if (dir !== lastDir.current) { lastDir.current = dir; wsRef.current?.send(JSON.stringify({ type:'dir', dir })) }
+    vibrate([15])
+    wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
     touchStart.current = null
   }
+
+  // D-pad send — no dedup, every press goes through
   const sendDir = (dir) => {
-    if (dir !== lastDir.current) { lastDir.current = dir; wsRef.current?.send(JSON.stringify({ type:'dir', dir })) }
+    wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
   }
+
   const rematch = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type:'reset' })) }
 
   const connected = state?.connected || []
@@ -278,11 +259,17 @@ export default function Snake({ player, players, onBack }) {
   const myScore   = state?.scores?.[player] ?? 0
   const opScore   = other ? (state?.scores?.[other] ?? 0) : 0
 
+  const hexToRgb = (hex) => {
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
+    return `${r},${g},${b}`
+  }
+
   return (
     <div style={{ minHeight:'100vh', background:'#0a1628', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none' }}>
+
       {/* Header */}
-      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 20px', background:'rgba(255,255,255,0.05)', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
-        <button onClick={onBack} style={{ background:'none', border:'none', fontSize:14, fontWeight:700, color: p.color, cursor:'pointer', padding:'6px 12px', borderRadius:10, fontFamily:'inherit' }}>← Back</button>
+      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 20px', background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', fontSize:14, fontWeight:700, color:p.color, cursor:'pointer', padding:'6px 12px', borderRadius:10, fontFamily:'inherit' }}>← Back</button>
         <div style={{ fontSize:16, fontWeight:900, color:'#fff' }}>Snake 🐍</div>
         <div style={{ width:56 }} />
       </div>
@@ -311,7 +298,7 @@ export default function Snake({ player, players, onBack }) {
       </div>
 
       {/* Status */}
-      <div style={{ padding:'4px 16px', fontSize:13, fontWeight:700, color:'#64748b', marginBottom:6 }}>{status}</div>
+      <div style={{ padding:'4px 16px', fontSize:13, fontWeight:700, color:'#64748b', marginBottom:4 }}>{status}</div>
 
       {/* Canvas */}
       <canvas
@@ -322,13 +309,15 @@ export default function Snake({ player, players, onBack }) {
       />
 
       {state?.winner && (
-        <button onClick={rematch} style={{ marginTop:14, padding:'10px 28px', borderRadius:12, border:'none', background:p.color, color:'#fff', fontSize:15, fontWeight:900, cursor:'pointer', boxShadow:`0 4px 16px rgba(${hexToRgb(p.color)},0.4)` }}>🔄 Play Again</button>
+        <button onClick={rematch} style={{ marginTop:14, padding:'10px 28px', borderRadius:12, border:'none', background:p.color, color:'#fff', fontSize:15, fontWeight:900, cursor:'pointer' }}>🔄 Play Again</button>
       )}
 
       {/* D-Pad */}
-      <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'repeat(3, 68px)', gridTemplateRows:'repeat(3, 68px)', gap:6 }}>
+      <div style={{ marginTop:16, display:'grid', gridTemplateColumns:'repeat(3, 72px)', gridTemplateRows:'repeat(3, 72px)', gap:8 }}>
         <div /><DPadBtn label="▲" dir="UP"    color={p.color} onPress={sendDir} /><div />
-        <DPadBtn label="◀" dir="LEFT"  color={p.color} onPress={sendDir} /><div /><DPadBtn label="▶" dir="RIGHT" color={p.color} onPress={sendDir} />
+        <DPadBtn label="◀" dir="LEFT"  color={p.color} onPress={sendDir} />
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', color:`${p.color}44`, fontSize:20 }}>🕹️</div>
+        <DPadBtn label="▶" dir="RIGHT" color={p.color} onPress={sendDir} />
         <div /><DPadBtn label="▼" dir="DOWN"  color={p.color} onPress={sendDir} /><div />
       </div>
     </div>
