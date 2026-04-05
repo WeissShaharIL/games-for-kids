@@ -17,6 +17,8 @@ from games.shooter    import router as shooter_router
 from games.airhockey  import router as airhockey_router
 from games.lego       import router as lego_router
 from games.mountain   import router as mountain_router
+from games.wordquiz import router as wordquiz_router
+
 import online as registry
 
 load_dotenv()
@@ -175,3 +177,4 @@ app.include_router(shooter_router,   prefix="/shooter")
 app.include_router(airhockey_router, prefix="/airhockey")
 app.include_router(lego_router,      prefix="/lego")
 app.include_router(mountain_router,  prefix="/mountain")
+app.include_router(wordquiz_router, prefix="/wordquiz")
