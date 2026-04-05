@@ -1,6 +1,8 @@
 import os
 import uuid
 import json
+import asyncio
+import time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,10 +45,9 @@ if not PLAYERS_CONFIG:
         PLAYERS_CONFIG.append({"name": name, "color": color, "light": light, "bg": bg, "emoji": emoji})
         PINS[pin] = name
 
-# ── Session persistence ────────────────────────────────────────────────────────
 SESSIONS_FILE = Path("/tmp/gfk_sessions.json")
 
-def _load_sessions() -> dict:
+def _load() -> dict:
     try:
         if SESSIONS_FILE.exists():
             return json.loads(SESSIONS_FILE.read_text())
@@ -54,26 +55,48 @@ def _load_sessions() -> dict:
         pass
     return {}
 
-def _save_sessions(sessions: dict):
+def _save(sessions: dict):
     try:
         SESSIONS_FILE.write_text(json.dumps(sessions))
     except Exception:
         pass
 
-# Load sessions on startup — survives Docker restarts if /tmp is preserved,
-# but more importantly survives uvicorn reloads (dev mode)
-active_sessions: dict[str, str] = _load_sessions()
+active_sessions: dict[str, str] = _load()
+last_heartbeat:  dict[str, float] = {}
 
-# Re-register all persisted sessions into the online registry
-for name in active_sessions:
+HEARTBEAT_TIMEOUT = 25
+
+for name in list(active_sessions.keys()):
     registry.register(name)
+    last_heartbeat[name] = time.time()
 
 app = FastAPI(title="Kids Game Hub")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+
+async def watchdog():
+    while True:
+        await asyncio.sleep(10)
+        now = time.time()
+        dead = [name for name, ts in list(last_heartbeat.items()) if now - ts > HEARTBEAT_TIMEOUT]
+        for name in dead:
+            print(f"[watchdog] evicting {name}")
+            active_sessions.pop(name, None)
+            last_heartbeat.pop(name, None)
+            registry.unregister(name)
+        if dead:
+            _save(active_sessions)
+
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(watchdog())
+
+
 @app.get("/players")
 async def get_players():
     return {"players": PLAYERS_CONFIG}
+
 
 @app.post("/auth")
 async def auth(payload: dict):
@@ -85,19 +108,41 @@ async def auth(payload: dict):
         raise HTTPException(status_code=409, detail=f"{name} is already logged in on another device")
     token = str(uuid.uuid4())
     active_sessions[name] = token
-    _save_sessions(active_sessions)
+    last_heartbeat[name]  = time.time()
+    _save(active_sessions)
     registry.register(name)
     return {"player": name, "token": token}
 
+
 @app.post("/resume")
 async def resume(payload: dict):
-    """Called on page refresh — validates the session is still active."""
     name  = payload.get("player", "")
     token = payload.get("token", "")
-    if active_sessions.get(name) == token:
-        registry.register(name)  # re-register in case of restart
+    if not name or not token:
+        raise HTTPException(status_code=401, detail="Missing credentials")
+    stored = active_sessions.get(name)
+    if stored == token:
+        last_heartbeat[name] = time.time()
+        registry.register(name)
         return {"ok": True, "player": name, "token": token}
+    if stored is None:
+        active_sessions[name] = token
+        last_heartbeat[name]  = time.time()
+        _save(active_sessions)
+        registry.register(name)
+        return {"ok": True, "player": name, "token": token}
+    raise HTTPException(status_code=409, detail="Session taken by another device")
+
+
+@app.post("/heartbeat")
+async def heartbeat(payload: dict):
+    name  = payload.get("player", "")
+    token = payload.get("token", "")
+    if name and active_sessions.get(name) == token:
+        last_heartbeat[name] = time.time()
+        return {"ok": True}
     raise HTTPException(status_code=401, detail="Session expired")
+
 
 @app.post("/logout")
 async def logout(payload: dict):
@@ -105,17 +150,21 @@ async def logout(payload: dict):
     token = payload.get("token", "")
     if name and active_sessions.get(name) == token:
         active_sessions.pop(name, None)
-        _save_sessions(active_sessions)
+        last_heartbeat.pop(name, None)
+        _save(active_sessions)
         registry.unregister(name)
     return {"ok": True}
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
+
 @app.get("/online")
 async def online():
     return {"online": registry.get_online(), "waiting": registry.get_status()}
+
 
 app.include_router(tictactoe_router, prefix="/tictactoe")
 app.include_router(connect4_router,  prefix="/connect4")

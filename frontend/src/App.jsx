@@ -53,7 +53,6 @@ function OnlinePill({ name, players }) {
   )
 }
 
-// ── PIN Screen ─────────────────────────────────────────────────────────────────
 function PinScreen({ onLogin }) {
   const [digits, setDigits]   = useState(['', '', '', ''])
   const [error, setError]     = useState('')
@@ -92,16 +91,9 @@ function PinScreen({ onLogin }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin }),
       })
-      if (res.status === 409) {
-        doShake('Already logged in on another device!')
-        return
-      }
-      if (!res.ok) {
-        doShake('Wrong PIN, try again!')
-        return
-      }
+      if (res.status === 409) { doShake('Already logged in on another device!'); return }
+      if (!res.ok)            { doShake('Wrong PIN, try again!'); return }
       const { player, token } = await res.json()
-      // Store in sessionStorage — clears automatically when tab/browser closes
       sessionStorage.setItem('gfk_player', player)
       sessionStorage.setItem('gfk_token', token)
       onLogin(player, token)
@@ -124,11 +116,7 @@ function PinScreen({ onLogin }) {
               key={i} ref={refs[i]} type="tel" maxLength={1} value={d}
               onChange={e => handleDigit(i, e.target.value)}
               onKeyDown={e => handleKey(i, e)}
-              style={{
-                ...s.pinInput,
-                borderColor: error ? '#ef4444' : d ? '#6366f1' : '#e2e8f0',
-                boxShadow:   d ? '0 0 0 3px #6366f133' : 'none',
-              }}
+              style={{ ...s.pinInput, borderColor: error ? '#ef4444' : d ? '#6366f1' : '#e2e8f0', boxShadow: d ? '0 0 0 3px #6366f133' : 'none' }}
             />
           ))}
         </div>
@@ -136,19 +124,15 @@ function PinScreen({ onLogin }) {
         {loading && <p style={s.pinLoading}>Checking...</p>}
       </div>
       <style>{`
-        @keyframes shake {
-          0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-8px)} 80%{transform:translateX(8px)}
-        }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-8px)} 80%{transform:translateX(8px)} }
         @keyframes fadeIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
     </div>
   )
 }
 
-// ── Game Hub ───────────────────────────────────────────────────────────────────
 function GameHub({ player, players, onSelectGame, onlinePlayers, waitingStatus }) {
   const p = players[player]
-
   return (
     <div style={{ ...s.hubWrap, background: p?.bg || '#f0fdf4', backgroundImage: p?.bgImage, backgroundSize: '120px' }}>
       <header style={s.hubHeader}>
@@ -163,22 +147,17 @@ function GameHub({ player, players, onSelectGame, onlinePlayers, waitingStatus }
 
       <div style={s.gameGrid}>
         {GAMES.map(g => {
-          const waitingHere = waitingStatus?.find(w => w.game === g.name && w.name !== player)
-            ? { name: waitingStatus.find(w => w.game === g.name && w.name !== player).name, p: players[waitingStatus.find(w => w.game === g.name && w.name !== player).name] }
-            : null
+          const waitingEntry = waitingStatus?.find(w => w.game === g.name && w.name !== player)
+          const waitingHere  = waitingEntry ? { name: waitingEntry.name, p: players[waitingEntry.name] } : null
           return (
-            <div
-              key={g.id}
-              onClick={() => g.ready && onSelectGame(g.id)}
-              style={{
-                ...s.gameCard,
-                opacity:     g.ready ? 1 : 0.5,
-                cursor:      g.ready ? 'pointer' : 'not-allowed',
-                borderColor: g.ready ? (p?.color || '#6366f1') : '#e2e8f0',
-                boxShadow:   waitingHere ? `0 4px 20px ${waitingHere.p?.color}44` : '0 4px 16px #0001',
-                transform:   waitingHere ? 'scale(1.03)' : 'scale(1)',
-              }}
-            >
+            <div key={g.id} onClick={() => g.ready && onSelectGame(g.id)} style={{
+              ...s.gameCard,
+              opacity:     g.ready ? 1 : 0.5,
+              cursor:      g.ready ? 'pointer' : 'not-allowed',
+              borderColor: g.ready ? (p?.color || '#6366f1') : '#e2e8f0',
+              boxShadow:   waitingHere ? `0 4px 20px ${waitingHere.p?.color}44` : '0 4px 16px #0001',
+              transform:   waitingHere ? 'scale(1.03)' : 'scale(1)',
+            }}>
               <div style={s.gameEmoji}>{g.emoji}</div>
               <div style={s.gameName}>{g.name}</div>
               <div style={s.gameDesc}>{g.desc}</div>
@@ -196,7 +175,6 @@ function GameHub({ player, players, onSelectGame, onlinePlayers, waitingStatus }
   )
 }
 
-// ── App root ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [player, setPlayer]         = useState(null)
   const [token, setToken]           = useState(null)
@@ -207,7 +185,6 @@ export default function App() {
   const [waitingStatus, setWaiting] = useState([])
   const pollRef                     = useRef(null)
 
-  // ── Fetch player config ──────────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/players`)
       .then(r => r.json())
@@ -222,37 +199,29 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
-  // ── Try to resume session from sessionStorage ───────────────────────────────
   useEffect(() => {
     if (loading) return
     const savedPlayer = sessionStorage.getItem('gfk_player')
     const savedToken  = sessionStorage.getItem('gfk_token')
     if (!savedPlayer || !savedToken) return
-
-    // Trust sessionStorage directly — it auto-clears when the tab/browser closes,
-    // so if it's here, this is a refresh and the user should stay logged in.
-    // Also call /resume to re-register with the backend (best-effort, ignore failures).
     setPlayer(savedPlayer)
     setToken(savedToken)
     fetch(`${API}/resume`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ player: savedPlayer, token: savedToken }),
-    }).catch(() => {})  // ignore — backend may have restarted, user is still in
+    }).catch(() => {})
   }, [loading])
 
-  // ── Send logout beacon on tab/window close ─────────────────────────────────
-  useEffect(() => {
-    if (!player || !token) return
-    const handleUnload = () => {
-      const data = JSON.stringify({ player, token })
-      navigator.sendBeacon(`${API}/logout`, new Blob([data], { type: 'application/json' }))
-    }
-    window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [player, token])
+ useEffect(() => {
+  if (!player || !token) return
+  const handleUnload = () => {
+    navigator.sendBeacon(`${API}/logout`, new Blob([JSON.stringify({ player, token })], { type: 'application/json' }))
+  }
+  window.addEventListener('beforeunload', handleUnload)
+  return () => window.removeEventListener('beforeunload', handleUnload)
+}, [player, token])
 
-  // ── Poll /online ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!player) return
     const poll = () => {
@@ -260,7 +229,7 @@ export default function App() {
         .then(r => r.json())
         .then(d => {
           setOnline(d.online || [])
-          const waitingDict = d.waiting || {};
+          const waitingDict = d.waiting || {}
           setWaiting(Object.entries(waitingDict).map(([name, game]) => ({ name, game })))
         })
         .catch(() => {})
@@ -270,18 +239,13 @@ export default function App() {
     return () => clearInterval(pollRef.current)
   }, [player])
 
-  const handleLogin = (p, t) => {
-    setPlayer(p)
-    setToken(t)
-  }
+  const handleLogin = (p, t) => { setPlayer(p); setToken(t) }
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-        <div style={{ color: '#fff', fontSize: 24, fontWeight: 900 }}>🎮 Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      <div style={{ color: '#fff', fontSize: 24, fontWeight: 900 }}>🎮 Loading...</div>
+    </div>
+  )
 
   const game = GAMES.find(g => g.id === gameId)
 
@@ -289,13 +253,7 @@ export default function App() {
     <>
       {!player && <PinScreen onLogin={handleLogin} />}
       {player && !gameId && (
-        <GameHub
-          player={player}
-          players={players}
-          onSelectGame={setGameId}
-          onlinePlayers={onlinePlayers}
-          waitingStatus={waitingStatus}
-        />
+        <GameHub player={player} players={players} onSelectGame={setGameId} onlinePlayers={onlinePlayers} waitingStatus={waitingStatus} />
       )}
       {player && gameId && game?.component && (() => {
         const GameComponent = game.component
@@ -306,7 +264,6 @@ export default function App() {
   )
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
 const s = {
   pinWrap:  { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
   pinCard:  { background: '#fff', borderRadius: 28, padding: '48px 40px', textAlign: 'center', boxShadow: '0 24px 64px #0003', minWidth: 320 },
@@ -317,7 +274,6 @@ const s = {
   pinInput: { width: 56, height: 64, fontSize: 28, fontWeight: 900, textAlign: 'center', border: '2px solid', borderRadius: 14, outline: 'none', color: '#1e1b4b', transition: 'all 0.2s', background: '#f8fafc', fontFamily: 'inherit' },
   pinError:   { color: '#ef4444', fontWeight: 700, fontSize: 14, marginTop: 4 },
   pinLoading: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
-
   hubWrap:   { minHeight: '100vh', paddingBottom: 40 },
   hubHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0', gap: 8, flexWrap: 'wrap' },
   hubLogo:   { fontSize: 22, fontWeight: 900, color: '#1e1b4b' },
