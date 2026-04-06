@@ -9,7 +9,8 @@ router = APIRouter()
 GAME_NAME = "Snake Race 🐍"
 ROWS      = 20
 COLS      = 20
-TICK_RATE = 0.12
+TICK_RATE = 0.16  # slower than before (was 0.12)
+MAX_APPLES = 2    # always 2 apples on screen
 
 DIRS = {
     "UP":    (-1,  0),
@@ -32,7 +33,7 @@ class SnakeGame:
         self.scores:      dict[str, int] = {}
         self.loop_task   = None
         self.snakes      = {}
-        self.apple       = (10, 10)
+        self.apples      = []   # list of (row, col)
         self.winner      = None
         self.countdown   = None
 
@@ -46,14 +47,16 @@ class SnakeGame:
                 "dir":   s["dir"],
                 "alive": True,
             }
-        self.apple  = self._spawn_apple()
-        self.winner = None
+        self.apples  = []
+        self._fill_apples()
+        self.winner  = None
         self.countdown = None
 
     def _all_occupied(self):
         occupied = set()
         for s in self.snakes.values():
             occupied.update(map(tuple, s["body"]))
+        occupied.update(self.apples)
         return occupied
 
     def _spawn_apple(self):
@@ -62,7 +65,13 @@ class SnakeGame:
             pos = (random.randint(0, ROWS - 1), random.randint(0, COLS - 1))
             if pos not in occupied:
                 return pos
-        return (0, 0)
+        return None
+
+    def _fill_apples(self):
+        while len(self.apples) < MAX_APPLES:
+            a = self._spawn_apple()
+            if a:
+                self.apples.append(a)
 
     def set_dir(self, player: str, direction: str):
         if direction not in DIRS:
@@ -78,7 +87,6 @@ class SnakeGame:
         if self.winner:
             return False
 
-        ate_apple = False
         for player, snake in self.snakes.items():
             if not snake["alive"]:
                 continue
@@ -91,12 +99,15 @@ class SnakeGame:
                 continue
 
             snake["body"].insert(0, new_head)
-            if tuple(new_head) == tuple(self.apple):
-                ate_apple = True
+
+            if new_head in self.apples:
+                self.apples.remove(new_head)
                 self.scores[player] = self.scores.get(player, 0) + 1
+                self._fill_apples()
             else:
                 snake["body"].pop()
 
+        # Collision detection
         all_bodies = {p: set(map(tuple, s["body"])) for p, s in self.snakes.items() if s["alive"]}
         for player, snake in self.snakes.items():
             if not snake["alive"]:
@@ -110,14 +121,12 @@ class SnakeGame:
                     snake["alive"] = False
                     break
 
+        # Head-on collision
         heads = {p: tuple(s["body"][0]) for p, s in self.snakes.items() if s["alive"]}
         head_list = list(heads.values())
         for p, h in heads.items():
             if head_list.count(h) > 1:
                 self.snakes[p]["alive"] = False
-
-        if ate_apple:
-            self.apple = self._spawn_apple()
 
         alive = [p for p, s in self.snakes.items() if s["alive"]]
         if len(alive) == 0:
@@ -133,7 +142,7 @@ class SnakeGame:
         return {
             "type":      "state",
             "snakes":    {p: {"body": s["body"], "dir": s["dir"], "alive": s["alive"]} for p, s in self.snakes.items()},
-            "apple":     self.apple,
+            "apples":    self.apples,
             "winner":    self.winner,
             "scores":    self.scores,
             "connected": list(self.connections.keys()),
@@ -213,7 +222,6 @@ async def snake_ws(websocket: WebSocket, player: str):
             raw  = await websocket.receive_text()
             data = json.loads(raw)
             if data.get("type") == "dir":
-                # Accept direction input always — even during countdown
                 game.set_dir(player, data.get("dir", "").upper())
             elif data.get("type") == "reset":
                 game.stop_loop()
