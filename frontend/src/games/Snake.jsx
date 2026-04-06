@@ -48,14 +48,16 @@ function DPadBtn({ label, dir, color, onPress }) {
 export default function Snake({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
-  const canvasRef   = useRef(null)
-  const wsRef       = useRef(null)
-  const mountedRef  = useRef(true)
-  const stateRef    = useRef(null)
-  const playersRef  = useRef(players)
-  const animIdRef   = useRef(null)
-  const prevWinner  = useRef(null)
-  const touchStart  = useRef(null)
+  const canvasRef     = useRef(null)
+  const wsRef         = useRef(null)
+  const mountedRef    = useRef(true)
+  const stateRef      = useRef(null)
+  const playersRef    = useRef(players)
+  const animIdRef     = useRef(null)
+  const prevWinner    = useRef(null)
+  const touchStart    = useRef(null)
+  const showArrowRef  = useRef(false)   // ← inside component
+  const arrowTimerRef = useRef(null)    // ← inside component
 
   useEffect(() => { stateRef.current = state }, [state])
   useEffect(() => { playersRef.current = players }, [players])
@@ -81,7 +83,14 @@ export default function Snake({ player, players, onBack }) {
       if (data.message)                setStatus(data.message)
       else if (connected.length < 2)   setStatus('Waiting for opponent...')
       else if (data.countdown > 0)     setStatus(`Starting in ${data.countdown}...`)
-      else if (data.countdown === 0)   setStatus('Go! 🐍')
+      else if (data.countdown === 0) {
+        setStatus('Go! 🐍')
+        showArrowRef.current = true
+        clearTimeout(arrowTimerRef.current)
+        arrowTimerRef.current = setTimeout(() => {
+          showArrowRef.current = false
+        }, 2000)
+      }
       else if (data.winner === 'draw') setStatus('🤝 Draw!')
       else if (data.winner === player) setStatus('🎉 You won!')
       else if (data.winner)            setStatus(`${data.winner} wins!`)
@@ -94,7 +103,11 @@ export default function Snake({ player, players, onBack }) {
   useEffect(() => {
     mountedRef.current = true
     connect()
-    return () => { mountedRef.current = false; wsRef.current?.close() }
+    return () => {
+      mountedRef.current = false
+      wsRef.current?.close()
+      clearTimeout(arrowTimerRef.current)
+    }
   }, [connect])
 
   // Canvas render loop
@@ -153,7 +166,7 @@ export default function Snake({ player, players, onBack }) {
 
       const connected = s.connected || []
 
-      // Draw all apples
+      // Apples
       const apples = s.apples || (s.apple ? [s.apple] : [])
       apples.forEach(apple => {
         const [ar, ac] = apple
@@ -179,6 +192,21 @@ export default function Snake({ player, players, onBack }) {
           if (!snake.alive) ctx.globalAlpha = 0.25
           snake.body.forEach((seg, i) => drawSegment(seg[1], seg[0], pi.color, i === 0, snake.dir))
           ctx.globalAlpha = 1
+
+          // Direction arrow on MY snake head for 2 seconds after GO
+          if (name === player && snake.alive && showArrowRef.current && snake.body.length > 0) {
+            const [hr, hc] = snake.body[0]
+            const arrowMap = { UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→' }
+            const arrow = arrowMap[snake.dir] || '→'
+            ctx.font = `bold ${CELL * 1.5}px sans-serif`
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.shadowColor = '#000'; ctx.shadowBlur = 6
+            ctx.fillStyle = '#fff'
+            ctx.fillText(arrow, hc*CELL + CELL/2, hr*CELL - CELL * 0.9)
+            ctx.shadowBlur = 0
+            ctx.textBaseline = 'alphabetic'
+          }
         })
       }
 

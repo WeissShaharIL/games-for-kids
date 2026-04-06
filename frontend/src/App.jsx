@@ -9,7 +9,7 @@ import AirHockey from './games/AirHockey'
 import Lego      from './games/Lego'
 import Mountain  from './games/Mountain'
 import WordQuiz from './games/WordQuiz'
-
+import TugOfWar from './games/TugOfWar'
 import MuteButton from './MuteButton'
 
 
@@ -25,7 +25,8 @@ const GAMES = [
   { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',   component: Spinner,   ready: true  },
   { id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',                component: Lego,      ready: true  },
   { id: 'mountain',  name: 'Mountain Quiz', emoji: '🏔️', desc: 'Math quiz up the mountain!',    component: Mountain,  ready: true  },
-  { id: 'wordquiz', name: 'Word Quiz', emoji: '🔤', desc: 'Hear it, tap it!', component: WordQuiz, ready: true },
+  { id: 'tugofwar',  name: 'Tug of War', emoji: '💪', desc: 'Pull the rope!', component: TugOfWar, ready: true },
+  { id: 'wordquiz',  name: 'Word Quiz', emoji: '🔤', desc: 'Hear it, tap it!', component: WordQuiz, ready: true },
 
 
 

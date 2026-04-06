@@ -265,9 +265,8 @@ async def wordquiz_ws(websocket: WebSocket, player: str):
             data = json.loads(raw)
             if data.get("type") == "set_level" and player == game.host and game.phase == "lobby":
                 lvl = data.get("level", "easy")
-                if lvl in ANSWER_TIMES:
+                if lvl in WORDS:
                     game.level = lvl
-                    game.time_left = ANSWER_TIME
                     await broadcast(game.state())
             elif data.get("type") == "start" and player == game.host:
                 if game.phase == "lobby" and len(game.connections) >= 2:
