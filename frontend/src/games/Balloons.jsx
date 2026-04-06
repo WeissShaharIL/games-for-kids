@@ -1,325 +1,307 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/balloons/ws`
 
-const BOARD_W = 390
-const BOARD_H = 600
-
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
+function safe(players, name, idx = 0) {
+  if (players?.[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
 }
 
 const BALLOON_COLORS = {
-  gold:  { fill: '#f59e0b', stroke: '#d97706', shine: '#fef3c7', label: '+2' },
-  white: { fill: '#e2e8f0', stroke: '#94a3b8', shine: '#ffffff', label: '+1' },
-  black: { fill: '#334155', stroke: '#1e293b', shine: '#64748b', label: '-2' },
+  gold:  { fill: '#f59e0b', stroke: '#d97706', shine: '#fef3c7', label: '+2 🥇' },
+  white: { fill: '#f8fafc', stroke: '#cbd5e1', shine: '#ffffff', label: '+1 ⚪' },
+  black: { fill: '#1e293b', stroke: '#0f172a', shine: '#334155', label: '-2 🖤' },
 }
 
-let popAnims = []
+const CW = 390
+const CH = 600
 
-export default function Balloons({ player, onBack }) {
+export default function Balloons({ player, players, onBack }) {
   const [state, setState]   = useState(null)
-  const [status, setStatus] = useState('Connecting...')
+  const [notice, setNotice] = useState('')
   const canvasRef           = useRef(null)
   const wsRef               = useRef(null)
-  const stateRef            = useRef(null)
-  const prevPhase           = useRef(null)
   const animRef             = useRef(null)
+  const stateRef            = useRef(null)
+  const popAnimsRef         = useRef([])
+  const prevPhase           = useRef(null)
+  const mountedRef          = useRef(true)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const me = safe(players, player, 0)
 
   useEffect(() => { stateRef.current = state }, [state])
 
-  // ── WebSocket ─────────────────────────────────────────────────────────────
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-
-    ws.onopen = () => setStatus(`Waiting for ${other}...`)
-
+    ws.onopen = () => {}
     ws.onmessage = (e) => {
+      if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
-
       if (data.pops?.length) {
         data.pops.forEach(pop => {
-          popAnims.push({ x: pop.x, y: pop.y, label: BALLOON_COLORS[pop.type]?.label || '', color: BALLOON_COLORS[pop.type]?.fill || '#fff', born: Date.now() })
+          const c = BALLOON_COLORS[pop.type] || BALLOON_COLORS.white
+          popAnimsRef.current.push({ x: pop.x, y: pop.y, label: c.label, color: c.fill, born: Date.now(), id: Math.random() })
           if (pop.player === player) {
             vibrate(VIBRATIONS.tap)
-            playSound(pop.points > 0 ? 'place' : 'error')
+            pop.points > 0 ? playSound('place') : playSound('error')
           }
         })
-        if (popAnims.length > 30) popAnims = popAnims.slice(-30)
       }
-
       if (data.phase !== prevPhase.current) {
         if (data.phase === 'countdown') playSound('rematch')
         if (data.phase === 'result') {
-          const my  = data.scores?.[player] ?? 0
-          const opp = data.scores?.[other]  ?? 0
-          if (my > opp)      { playSound('win');  vibrate(VIBRATIONS.win)  }
-          else if (my < opp) { playSound('lose'); vibrate(VIBRATIONS.lose) }
-          else               { playSound('draw'); vibrate(VIBRATIONS.draw) }
+          const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
+          winner === player ? playSound('win') : playSound('lose')
         }
         prevPhase.current = data.phase
       }
-
-      if (data.message)                    setStatus(data.message)
-      else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
-      else if (data.phase === 'countdown') setStatus('Get ready...')
-      else if (data.phase === 'playing')   setStatus('🎈 Pop the balloons!')
-      else if (data.phase === 'result') {
-        const my  = data.scores?.[player] ?? 0
-        const opp = data.scores?.[other]  ?? 0
-        if (my > opp)      setStatus('🎉 You win!')
-        else if (my < opp) setStatus(`${op.emoji} ${other} wins!`)
-        else               setStatus("🤝 It's a draw!")
+      if (data.disconnected) {
+        setNotice(`${data.disconnected} disconnected`)
+        setTimeout(() => { if (mountedRef.current) setNotice('') }, 3000)
       }
     }
-
-    ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
+    ws.onclose = () => { if (!mountedRef.current) return; setTimeout(connect, 2000) }
     ws.onerror = () => ws.close()
   }, [player])
 
-  useEffect(() => { connect(); return () => wsRef.current?.close() }, [connect])
-
-  // ── Render loop — runs always, canvas always mounted ──────────────────────
   useEffect(() => {
+    mountedRef.current = true
+    connect()
+    return () => {
+      mountedRef.current = false
+      wsRef.current?.close()
+      cancelAnimationFrame(animRef.current)
+    }
+  }, [connect])
+
+  // Start canvas loop once canvas is available
+  const startLoop = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    if (animRef.current) cancelAnimationFrame(animRef.current)
+
+    canvas.width  = CW
+    canvas.height = CH
     const ctx = canvas.getContext('2d')
 
-    const render = () => {
+    function drawBalloon(b) {
+      const { fill, stroke, shine } = BALLOON_COLORS[b.type] || BALLOON_COLORS.white
+      const r = 28
+      // Shadow
+      ctx.save()
+      ctx.shadowColor = 'rgba(0,0,0,0.2)'
+      ctx.shadowBlur  = 10
+      ctx.shadowOffsetY = 4
+      // Body
+      ctx.beginPath()
+      ctx.ellipse(b.x, b.y, r, r * 1.25, 0, 0, Math.PI * 2)
+      ctx.fillStyle = fill
+      ctx.fill()
+      ctx.strokeStyle = stroke
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.restore()
+      // Shine
+      ctx.beginPath()
+      ctx.ellipse(b.x - r*0.3, b.y - r*0.4, r*0.22, r*0.32, -0.5, 0, Math.PI*2)
+      ctx.fillStyle = shine + 'cc'
+      ctx.fill()
+      // Knot
+      ctx.beginPath()
+      ctx.arc(b.x, b.y + r*1.25, 4, 0, Math.PI*2)
+      ctx.fillStyle = stroke
+      ctx.fill()
+      // String
+      ctx.beginPath()
+      ctx.moveTo(b.x, b.y + r*1.25 + 4)
+      ctx.quadraticCurveTo(b.x + 10, b.y + r*1.25 + 18, b.x + 6, b.y + r*1.25 + 30)
+      ctx.strokeStyle = '#94a3b855'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
+
+    function render() {
+      animRef.current = requestAnimationFrame(render)
       const s = stateRef.current
-      const W = canvas.width
-      const H = canvas.height
 
-      // Scale: logical BOARD_W x BOARD_H → canvas pixels
-      const sx = W / BOARD_W
-      const sy = H / BOARD_H
-      const sr = Math.min(sx, sy)
+      // Always draw sky background
+      const grad = ctx.createLinearGradient(0, 0, 0, CH)
+      grad.addColorStop(0, '#bfdbfe')
+      grad.addColorStop(0.6, '#d1fae5')
+      grad.addColorStop(1, '#ecfdf5')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, CW, CH)
 
-      ctx.clearRect(0, 0, W, H)
-
-      // Background
-      const bg = ctx.createLinearGradient(0, 0, 0, H)
-      bg.addColorStop(0, '#bfdbfe')
-      bg.addColorStop(1, '#ddd6fe')
-      ctx.fillStyle = bg
-      ctx.fillRect(0, 0, W, H)
-
-      const balloons = s?.balloons || []
-      const radius   = 28 * sr
-
-      balloons.forEach(b => {
-        const bx = b.x * sx
-        const by = b.y * sy
-        const c  = BALLOON_COLORS[b.type]
-        if (!c) return
-
-        // Body
-        ctx.save()
-        ctx.shadowColor   = 'rgba(0,0,0,0.2)'
-        ctx.shadowBlur    = 10
-        ctx.shadowOffsetY = 4
+      if (!s || s.phase !== 'playing') {
+        // Show a "waiting" message on canvas
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'
         ctx.beginPath()
-        ctx.ellipse(bx, by, radius * 0.82, radius, 0, 0, 2 * Math.PI)
-        ctx.fillStyle   = c.fill
+        ctx.roundRect(CW/2 - 100, CH/2 - 30, 200, 60, 16)
         ctx.fill()
-        ctx.strokeStyle = c.stroke
-        ctx.lineWidth   = 2
-        ctx.stroke()
-        ctx.restore()
-
-        // Shine
-        ctx.beginPath()
-        ctx.ellipse(bx - radius * 0.22, by - radius * 0.28, radius * 0.18, radius * 0.25, -0.4, 0, 2 * Math.PI)
-        ctx.fillStyle = c.shine + 'bb'
-        ctx.fill()
-
-        // Knot
-        ctx.beginPath()
-        ctx.arc(bx, by + radius + 3, 4 * sr, 0, 2 * Math.PI)
-        ctx.fillStyle = c.stroke
-        ctx.fill()
-
-        // String
-        ctx.beginPath()
-        ctx.moveTo(bx, by + radius + 7 * sr)
-        ctx.lineTo(bx + Math.sin(b.tick * 0.1) * 5 * sr, by + radius + 22 * sr)
-        ctx.strokeStyle = c.stroke + '99'
-        ctx.lineWidth   = 1.5
-        ctx.stroke()
-
-        // Symbol
-        ctx.font      = `bold ${Math.floor(radius * 0.55)}px sans-serif`
+        ctx.fillStyle = '#64748b'
+        ctx.font = 'bold 18px sans-serif'
         ctx.textAlign = 'center'
-        ctx.fillStyle = b.type === 'gold' ? '#78350f' : b.type === 'black' ? '#e2e8f0' : '#94a3b8'
-        ctx.fillText(b.type === 'gold' ? '★' : b.type === 'black' ? '✕' : '·', bx, by + radius * 0.2)
+        ctx.textBaseline = 'middle'
+        ctx.fillText(s?.phase === 'countdown' ? `🎈 ${s.countdown}` : '🎈 Get ready!', CW/2, CH/2)
+        ctx.textBaseline = 'alphabetic'
+        return
+      }
+
+      // Clouds
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'
+      ;[[55,60,42],[180,40,35],[310,85,28],[90,150,22],[265,130,26]].forEach(([x,y,r]) => {
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x+r*0.65,y+5,r*0.75,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(x-r*0.6,y+6,r*0.65,0,Math.PI*2); ctx.fill()
       })
 
-      // Countdown overlay
-      if (s?.countdown !== null && s?.countdown !== undefined && s?.phase === 'countdown') {
-        ctx.fillStyle = 'rgba(0,0,0,0.45)'
-        ctx.fillRect(0, 0, W, H)
-        ctx.font        = `900 ${Math.floor(W * 0.25)}px Nunito, sans-serif`
-        ctx.textAlign   = 'center'
-        ctx.fillStyle   = s.countdown === 0 ? '#fbbf24' : '#fff'
-        ctx.shadowColor = '#000'
-        ctx.shadowBlur  = 20
-        ctx.fillText(s.countdown === 0 ? 'GO!' : String(s.countdown), W / 2, H / 2 + 40)
-        ctx.shadowBlur  = 0
-      }
-
-      // Waiting overlay
-      if (!s || s.connected?.length < 2) {
-        ctx.fillStyle = 'rgba(255,255,255,0.6)'
-        ctx.fillRect(0, 0, W, H)
-        ctx.font      = `bold ${Math.floor(W * 0.06)}px Nunito, sans-serif`
-        ctx.textAlign = 'center'
-        ctx.fillStyle = '#94a3b8'
-        ctx.fillText('Waiting for other player...', W / 2, H / 2)
-      }
+      // Balloons
+      ;(s.balloons || []).forEach(drawBalloon)
 
       // Pop animations
       const now = Date.now()
-      popAnims = popAnims.filter(a => now - a.born < 700)
-      popAnims.forEach(a => {
-        const age = (now - a.born) / 700
-        const rise = age * 55
-        ctx.globalAlpha = 1 - age
-        ctx.font        = `900 ${Math.floor(20 * sr)}px Nunito, sans-serif`
-        ctx.textAlign   = 'center'
-        ctx.fillStyle   = a.color
-        ctx.shadowColor = '#000'
-        ctx.shadowBlur  = 6
-        ctx.fillText(a.label, a.x * sx, a.y * sy - rise)
-        ctx.shadowBlur  = 0
-        ctx.globalAlpha = 1
-      })
-
-      animRef.current = requestAnimationFrame(render)
+      popAnimsRef.current = popAnimsRef.current.filter(a => now - a.born < 800)
+      for (const a of popAnimsRef.current) {
+        const t = (now - a.born) / 800
+        const alpha = Math.floor((1 - t) * 255).toString(16).padStart(2, '0')
+        ctx.font = `bold ${16 + t*10}px sans-serif`
+        ctx.fillStyle = a.color + alpha
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'alphabetic'
+        ctx.fillText(a.label, a.x, a.y - t * 55)
+      }
     }
 
-    animRef.current = requestAnimationFrame(render)
-    return () => cancelAnimationFrame(animRef.current)
+    render()
   }, [])
 
-  // ── Tap ───────────────────────────────────────────────────────────────────
+  // Attach canvas ref callback — starts loop as soon as canvas mounts
+  const canvasCallbackRef = useCallback((node) => {
+    canvasRef.current = node
+    if (node) startLoop()
+  }, [startLoop])
+
+  const send = (msg) => wsRef.current?.readyState === 1 && wsRef.current.send(JSON.stringify(msg))
+
   const handleTap = (e) => {
-    if (stateRef.current?.phase !== 'playing') return
     e.preventDefault()
-    const canvas  = canvasRef.current
-    if (!canvas) return
-    const rect    = canvas.getBoundingClientRect()
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
-    // Convert CSS pixels → logical coords
-    const cssW = rect.width
-    const cssH = rect.height
-    const logX = ((clientX - rect.left) / cssW) * BOARD_W
-    const logY = ((clientY - rect.top)  / cssH) * BOARD_H
-    wsRef.current?.send(JSON.stringify({ type: 'pop', x: logX, y: logY }))
+    const s = stateRef.current
+    if (s?.phase !== 'playing') return
+    const canvas = canvasRef.current
+    const rect   = canvas.getBoundingClientRect()
+    const scaleX = CW / rect.width
+    const scaleY = CH / rect.height
+    const touch  = e.changedTouches?.[0] || e
+    send({ type: 'pop', x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY })
   }
 
-  const sendReset = () => {
-    prevPhase.current = null
-    popAnims = []
-    wsRef.current?.send(JSON.stringify({ type: 'reset' }))
-  }
+  if (!state) return (
+    <div style={{ minHeight:'100vh', background:me.bg, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ fontSize:48 }}>🎈</div>
+      <div style={{ marginTop:16, color:'#64748b' }}>Connecting...</div>
+    </div>
+  )
 
-  const phase      = state?.phase
-  const myScore    = state?.scores?.[player]  ?? 0
-  const otherScore = state?.scores?.[other]   ?? 0
-  const timeLeft   = state?.time_left         ?? 30
-  const myWon      = phase === 'result' && myScore > otherScore
-  const oppWon     = phase === 'result' && otherScore > myScore
+  const { phase, scores={}, countdown, time_left, players: connected=[], host } = state
+  const isHost = player === host
+  const scoreboard = [...connected].sort((a,b) => (scores[b]||0)-(scores[a]||0))
 
-  // Canvas dimensions — fixed logical ratio, fit screen width
-  const canvasW = Math.min(window.innerWidth - 16, BOARD_W)
-  const canvasH = Math.round(canvasW * (BOARD_H / BOARD_W))
-
-  return (
-    <div style={{ ...s.wrap, background: p.bg }}>
-      <div style={s.header}>
-        <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
-        <div style={s.title}>🎈 Pop Balloons!</div>
-        <div style={{ width: 64 }} />
+  // ── LOBBY ──────────────────────────────────────────────────────────────────
+  if (phase === 'lobby') return (
+    <div style={{ minHeight:'100vh', background:me.bg, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, fontFamily:'sans-serif' }}>
+      <button onClick={onBack} style={{ position:'absolute', top:16, left:16, background:'none', border:'none', fontSize:28, cursor:'pointer' }}>←</button>
+      <div style={{ fontSize:64, marginBottom:8 }}>🎈</div>
+      <h2 style={{ margin:'0 0 4px', fontSize:26, color:'#1e293b' }}>Pop Balloons</h2>
+      <p style={{ margin:'0 0 28px', color:'#64748b', fontSize:14 }}>{connected.length} / 4 players in lobby</p>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', marginBottom:28 }}>
+        {connected.map((name, i) => {
+          const pi = safe(players, name, i)
+          return (
+            <div key={name} style={{ background:pi.color, color:'#fff', borderRadius:20, padding:'8px 18px', fontWeight:'bold', fontSize:15, display:'flex', alignItems:'center', gap:6 }}>
+              <span>{pi.emoji}</span><span>{name}</span>
+              {name===host && <span style={{ fontSize:11, opacity:0.8 }}>(host)</span>}
+            </div>
+          )
+        })}
+        {connected.length < 2 && <div style={{ background:'#e2e8f0', color:'#94a3b8', borderRadius:20, padding:'8px 18px', fontSize:15 }}>Waiting...</div>}
       </div>
-
-      {/* Scores + timer */}
-      <div style={s.scoreBar}>
-        <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
-          <span style={{ fontSize: 20 }}>{p.emoji}</span>
-          <span style={{ fontWeight: 900, color: p.color, fontSize: 24 }}>{myScore}</span>
-        </div>
-        <div style={{ ...s.timer, color: timeLeft <= 10 ? '#ef4444' : '#1e1b4b' }}>
-          {phase === 'playing' || phase === 'countdown' ? `${timeLeft}s` : '🎈'}
-        </div>
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontWeight: 900, color: op.color, fontSize: 24 }}>{otherScore}</span>
-          <span style={{ fontSize: 20 }}>{op.emoji}</span>
-        </div>
-      </div>
-
-      {/* Legend */}
-      {(phase === 'playing' || phase === 'countdown') && (
-        <div style={s.legend}>
-          <span style={{ color: '#f59e0b', fontWeight: 800 }}>🟡 +2</span>
-          <span style={{ color: '#64748b', fontWeight: 800 }}>⚪ +1</span>
-          <span style={{ color: '#334155', fontWeight: 800 }}>⚫ -2</span>
-        </div>
-      )}
-
-      {/* Status */}
-      {phase !== 'playing' && (
-        <div style={{ ...s.status, background: myWon ? p.light : oppWon ? op.light : '#f1f5f9', color: myWon ? p.color : oppWon ? op.color : '#64748b' }}>
-          {status}
-        </div>
-      )}
-
-      {/* Canvas — always rendered */}
-      <div style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 32px #0003' }}>
-        <canvas
-          ref={canvasRef}
-          width={canvasW}
-          height={canvasH}
-          style={{ display: 'block', touchAction: 'none' }}
-          onClick={handleTap}
-          onTouchStart={handleTap}
-        />
-      </div>
-
-      {/* Result */}
-      {phase === 'result' && (
-        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 48 }}>{myWon ? p.emoji : oppWon ? op.emoji : '🤝'}</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: myWon ? p.color : oppWon ? op.color : '#64748b' }}>
-            {myWon ? 'You win!' : oppWon ? `${other} wins!` : "It's a draw!"}
-          </div>
-          <div style={{ fontSize: 14, color: '#94a3b8', fontWeight: 700 }}>{myScore} – {otherScore}</div>
-          <button onClick={sendReset} style={{ ...s.bigBtn, background: p.color }}>🔄 Play Again</button>
+      {isHost ? (
+        <button onClick={() => send({ type:'start' })} disabled={connected.length < 2} style={{ background: connected.length>=2 ? me.color : '#cbd5e1', color:'#fff', border:'none', borderRadius:16, padding:'16px 40px', fontSize:20, fontWeight:'bold', cursor: connected.length>=2 ? 'pointer' : 'not-allowed' }}>
+          {connected.length < 2 ? 'Waiting for players...' : '🎈 Start Game!'}
+        </button>
+      ) : (
+        <div style={{ color:'#64748b', fontSize:16, textAlign:'center' }}>
+          <div style={{ fontSize:28, marginBottom:8 }}>⏳</div>
+          Waiting for <strong>{host}</strong> to start...
         </div>
       )}
     </div>
   )
-}
 
-const s = {
-  wrap:       { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 24, gap: 10 },
-  header:     { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
-  backBtn:    { background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', padding: '6px 12px', borderRadius: 10, fontFamily: 'inherit' },
-  title:      { fontSize: 18, fontWeight: 900, color: '#1e1b4b' },
-  scoreBar:   { display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 390, padding: '0 16px' },
-  scoreCard:  { display: 'flex', alignItems: 'center', gap: 8, border: '2px solid', borderRadius: 14, padding: '8px 16px', flex: 1, justifyContent: 'center' },
-  timer:      { fontSize: 28, fontWeight: 900, fontFamily: 'monospace', minWidth: 56, textAlign: 'center', transition: 'color 0.3s' },
-  legend:     { display: 'flex', gap: 16, fontSize: 13, fontWeight: 700 },
-  status:     { padding: '10px 24px', borderRadius: 12, fontSize: 15, fontWeight: 800, textAlign: 'center', minWidth: 240, maxWidth: 380, transition: 'all 0.3s' },
-  bigBtn:     { padding: '14px 36px', borderRadius: 16, border: 'none', color: '#fff', fontSize: 18, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 16px #0002' },
+  // ── RESULT ─────────────────────────────────────────────────────────────────
+  if (phase === 'result') {
+    const winner = scoreboard[0]
+    return (
+      <div style={{ minHeight:'100vh', background:me.bg, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, fontFamily:'sans-serif' }}>
+        <div style={{ fontSize:64 }}>{winner===player?'🏆':'🎈'}</div>
+        <h2 style={{ fontSize:28, margin:'12px 0 4px', color:'#1e293b' }}>{winner===player?'You Won!':`${winner} Wins!`}</h2>
+        <div style={{ width:'100%', maxWidth:320, marginTop:20 }}>
+          {scoreboard.map((name, i) => {
+            const pi = safe(players, name, i)
+            return (
+              <div key={name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:name===player?pi.light:'#fff', border:`2px solid ${pi.color}`, borderRadius:12, padding:'10px 16px', marginBottom:8 }}>
+                <span style={{ fontSize:22 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
+                <span style={{ color:pi.color, fontSize:16 }}>{pi.emoji} {name}</span>
+                <span style={{ fontSize:20, fontWeight:'bold' }}>{scores[name]??0} pts</span>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display:'flex', gap:12, marginTop:24 }}>
+          <button onClick={onBack} style={{ background:'#e2e8f0', border:'none', borderRadius:12, padding:'12px 24px', fontSize:16, cursor:'pointer' }}>← Back</button>
+          <button onClick={() => send({ type:'reset' })} style={{ background:me.color, color:'#fff', border:'none', borderRadius:12, padding:'12px 24px', fontSize:16, fontWeight:'bold', cursor:'pointer' }}>🔄 Play Again</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── COUNTDOWN + PLAYING — canvas always visible ────────────────────────────
+  return (
+    <div style={{ minHeight:'100vh', background:'#bfdbfe', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none' }}>
+      {/* Header */}
+      <div style={{ width:'100%', maxWidth:400, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 16px', background:'rgba(255,255,255,0.85)', borderBottom:'1px solid #e2e8f0', flexWrap:'wrap', gap:4 }}>
+        {connected.map((name, i) => {
+          const pi = safe(players, name, i)
+          return (
+            <div key={name} style={{ display:'flex', alignItems:'center', gap:4, background:name===player?pi.light:'transparent', borderRadius:8, padding:'2px 8px' }}>
+              <span style={{ fontSize:18 }}>{pi.emoji}</span>
+              <span style={{ fontWeight:'bold', color:pi.color, fontSize:14 }}>{name}</span>
+              <span style={{ fontWeight:'bold', color:'#1e293b', fontSize:16 }}>{scores[name]??0}</span>
+            </div>
+          )
+        })}
+        <div style={{ fontWeight:'bold', color:'#ef4444', fontSize:18, marginLeft:'auto' }}>⏱ {time_left}s</div>
+      </div>
+      {notice && <div style={{ background:'#fef2f2', color:'#ef4444', fontSize:13, padding:'4px 16px', width:'100%', textAlign:'center' }}>{notice}</div>}
+      {/* Canvas — always mounted */}
+      <canvas
+        ref={canvasCallbackRef}
+        width={CW}
+        height={CH}
+        style={{ touchAction:'none', maxWidth:'100%', display:'block', cursor:'pointer' }}
+        onPointerDown={handleTap}
+      />
+    </div>
+  )
 }

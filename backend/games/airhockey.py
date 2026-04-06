@@ -26,55 +26,113 @@ class AirHockeyGame:
         self._reset()
 
     def _reset(self):
-        self.phase = "waiting"; self.countdown = None
-        self.scores = {"Ariel": 0, "Ella": 0}; self.last_goal = None
+        self.phase = "waiting"
+        self.countdown = None
+        self.scores: dict[str, int] = {}
+        self.last_goal = None
         self._reset_round()
 
     def _reset_round(self):
         self.puck = Vec(W/2, H/2)
-        angle = random.uniform(-0.4, 0.4); speed = 6.0
+        angle = random.uniform(-0.4, 0.4)
+        speed = 6.0
         self.puck_vel = Vec(math.sin(angle)*speed, math.cos(angle)*speed*random.choice([1,-1]))
-        self.mallets = {"Ariel": Vec(W/2, H-80), "Ella": Vec(W/2, 80)}
+        players = list(self.connections.keys())
+        self.mallets = {
+            players[0]: Vec(W/2, H-80),
+            players[1]: Vec(W/2, 80),
+        } if len(players) >= 2 else {}
         self.last_goal = None
 
     def move_mallet(self, player: str, x: float, y: float):
-        if self.phase != "playing": return
+        if self.phase != "playing":
+            return
         m = self.mallets.get(player)
-        if not m: return
-        if player == "Ariel": y = clamp(y, H/2+MALLET_R, H-MALLET_R)
-        else:                  y = clamp(y, MALLET_R, H/2-MALLET_R)
-        x = clamp(x, MALLET_R, W-MALLET_R); m.x = x; m.y = y
+        if not m:
+            return
+        players = list(self.connections.keys())
+        if players and player == players[0]:
+            y = clamp(y, H/2+MALLET_R, H-MALLET_R)
+        else:
+            y = clamp(y, MALLET_R, H/2-MALLET_R)
+        x = clamp(x, MALLET_R, W-MALLET_R)
+        m.x = x; m.y = y
 
     def tick(self):
-        p = self.puck; pv = self.puck_vel
-        p.x += pv.x; p.y += pv.y
-        if p.x - PUCK_R < 0:   p.x = PUCK_R;       pv.x = abs(pv.x)
-        if p.x + PUCK_R > W:   p.x = W-PUCK_R;     pv.x = -abs(pv.x)
+        p = self.puck
+        pv = self.puck_vel
+        p.x += pv.x
+        p.y += pv.y
+
+        # Wall bounces (sides)
+        if p.x - PUCK_R < 0:
+            p.x = PUCK_R
+            pv.x = abs(pv.x)
+        if p.x + PUCK_R > W:
+            p.x = W - PUCK_R
+            pv.x = -abs(pv.x)
+
+        # Top wall — player[1]'s goal
         if p.y - PUCK_R < GOAL_Y:
-            gl = W/2-GOAL_W/2; gr = W/2+GOAL_W/2
-            if gl < p.x < gr: self.scores["Ariel"] += 1; self.last_goal = "Ariel"; return "Ariel"
-            else: p.y = PUCK_R+GOAL_Y; pv.y = abs(pv.y)
-        if p.y + PUCK_R > H-GOAL_Y:
-            gl = W/2-GOAL_W/2; gr = W/2+GOAL_W/2
-            if gl < p.x < gr: self.scores["Ella"] += 1; self.last_goal = "Ella"; return "Ella"
-            else: p.y = H-PUCK_R-GOAL_Y; pv.y = -abs(pv.y)
+            gl = W/2 - GOAL_W/2
+            gr = W/2 + GOAL_W/2
+            if gl < p.x < gr:
+                # Goal for player[0]
+                p0 = list(self.connections.keys())[0] if self.connections else "p1"
+                self.scores[p0] = self.scores.get(p0, 0) + 1
+                self.last_goal = p0
+                return p0
+            else:
+                p.y = PUCK_R + GOAL_Y
+                pv.y = abs(pv.y)
+
+        # Bottom wall — player[0]'s goal
+        if p.y + PUCK_R > H - GOAL_Y:
+            gl = W/2 - GOAL_W/2
+            gr = W/2 + GOAL_W/2
+            if gl < p.x < gr:
+                # Goal for player[1]
+                p1 = list(self.connections.keys())[1] if len(self.connections) >= 2 else "p2"
+                self.scores[p1] = self.scores.get(p1, 0) + 1
+                self.last_goal = p1
+                return p1
+            else:
+                p.y = H - PUCK_R - GOAL_Y
+                pv.y = -abs(pv.y)
+
+        # Mallet collisions
         for player, m in self.mallets.items():
-            dist = p.dist(m); min_dist = PUCK_R+MALLET_R
+            dist = p.dist(m)
+            min_dist = PUCK_R + MALLET_R
             if dist < min_dist and dist > 0.1:
-                nx = (p.x-m.x)/dist; ny = (p.y-m.y)/dist
-                p.x += nx*(min_dist-dist); p.y += ny*(min_dist-dist)
-                dot = pv.x*nx+pv.y*ny; pv.x -= 2*dot*nx; pv.y -= 2*dot*ny
-                speed = math.hypot(pv.x, pv.y); boost = min(speed+2.0, MAX_SPEED)
-                if speed > 0: pv.x = pv.x/speed*boost; pv.y = pv.y/speed*boost
+                nx = (p.x - m.x) / dist
+                ny = (p.y - m.y) / dist
+                p.x += nx * (min_dist - dist)
+                p.y += ny * (min_dist - dist)
+                dot = pv.x*nx + pv.y*ny
+                pv.x -= 2*dot*nx
+                pv.y -= 2*dot*ny
+                speed = math.hypot(pv.x, pv.y)
+                boost = min(speed + 2.0, MAX_SPEED)
+                if speed > 0:
+                    pv.x = pv.x/speed * boost
+                    pv.y = pv.y/speed * boost
+
         return None
 
     def state(self) -> dict:
-        return {"type": "state", "phase": self.phase, "countdown": self.countdown,
-                "scores": self.scores, "puck": self.puck.serialize(),
-                "mallets": {p: m.serialize() for p, m in self.mallets.items()},
-                "last_goal": self.last_goal, "connected": list(self.connections.keys()),
-                "board": {"w": W, "h": H, "goal_w": GOAL_W, "goal_y": GOAL_Y, "mallet_r": MALLET_R, "puck_r": PUCK_R},
-                "win_score": WIN_SCORE}
+        return {
+            "type": "state",
+            "phase": self.phase,
+            "countdown": self.countdown,
+            "scores": self.scores,
+            "puck": self.puck.serialize(),
+            "mallets": {p: m.serialize() for p, m in self.mallets.items()},
+            "last_goal": self.last_goal,
+            "connected": list(self.connections.keys()),
+            "board": {"w": W, "h": H, "goal_w": GOAL_W, "goal_y": GOAL_Y, "mallet_r": MALLET_R, "puck_r": PUCK_R},
+            "win_score": WIN_SCORE,
+        }
 
 
 game = AirHockeyGame()
@@ -83,45 +141,66 @@ game = AirHockeyGame()
 async def broadcast(msg: dict):
     dead = []
     for player, ws in game.connections.items():
-        try: await ws.send_text(json.dumps(msg))
-        except Exception: dead.append(player)
-    for p in dead: game.connections.pop(p, None)
+        try:
+            await ws.send_text(json.dumps(msg))
+        except Exception:
+            dead.append(player)
+    for p in dead:
+        game.connections.pop(p, None)
 
 
 async def game_loop():
     for n in range(COUNTDOWN, 0, -1):
-        if len(game.connections) < 2: return
-        game.countdown = n; await broadcast(game.state()); await asyncio.sleep(1.0)
-    game.countdown = 0; await broadcast(game.state()); await asyncio.sleep(0.3)
-    game.countdown = None; game.phase = "playing"; game._reset_round()
+        if len(game.connections) < 2:
+            return
+        game.countdown = n
+        await broadcast(game.state())
+        await asyncio.sleep(1.0)
+
+    game.countdown = 0
+    await broadcast(game.state())
+    await asyncio.sleep(0.3)
+    game.countdown = None
+    game.phase = "playing"
+    game._reset_round()
 
     while True:
         await asyncio.sleep(TICK_RATE)
+
         if len(game.connections) < 2:
-            game.phase = "waiting"; game._reset_round(); await broadcast(game.state()); return
+            game.phase = "waiting"
+            game._reset_round()
+            await broadcast(game.state())
+            return
+
         scorer = game.tick()
+
         if scorer:
             await broadcast(game.state())
-            if game.scores[scorer] >= WIN_SCORE:
-                game.phase = "result"; await broadcast(game.state()); return
-            await asyncio.sleep(1.5); game._reset_round(); game.phase = "countdown"
+            if game.scores.get(scorer, 0) >= WIN_SCORE:
+                game.phase = "result"
+                await broadcast(game.state())
+                return
+            await asyncio.sleep(1.5)
+            game._reset_round()
+            game.phase = "countdown"
             await broadcast(game.state())
             for n in range(2, 0, -1):
-                await asyncio.sleep(1.0); game.countdown = n; await broadcast(game.state())
-            game.countdown = None; game.phase = "playing"; await broadcast(game.state())
+                await asyncio.sleep(1.0)
+                game.countdown = n
+                await broadcast(game.state())
+            game.countdown = None
+            game.phase = "playing"
+            await broadcast(game.state())
         else:
             await broadcast(game.state())
 
 
 @router.websocket("/ws/{player}")
 async def airhockey_ws(websocket: WebSocket, player: str):
-    if player not in ("Ariel", "Ella"):
-        await websocket.close(code=4001)
-        return
-
     await websocket.accept()
     game.connections[player] = websocket
-    game._reset()
+    game.scores.setdefault(player, 0)
     registry.set_game(player, GAME_NAME)
     await broadcast(game.state())
 
@@ -148,6 +227,7 @@ async def airhockey_ws(websocket: WebSocket, player: str):
         game.connections.pop(player, None)
         registry.clear_game(player)
         if game.loop_task and not game.loop_task.done():
-            game.loop_task.cancel(); game.loop_task = None
+            game.loop_task.cancel()
+            game.loop_task = None
         game._reset()
         await broadcast({**game.state(), "message": f"{player} disconnected."})

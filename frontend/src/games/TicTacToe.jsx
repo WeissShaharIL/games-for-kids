@@ -1,118 +1,138 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
+import { vibrate, VIBRATIONS } from '../vibrate'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/tictactoe/ws`
 
-const CROWN_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#16a34a">
-    <polygon points="60,20 20,60 35,60 35,85 85,85 85,60 100,60" />
-    <circle cx="20" cy="55" r="7"/><circle cx="60" cy="15" r="7"/><circle cx="100" cy="55" r="7"/>
-    <rect x="30" y="85" width="60" height="10" rx="3"/>
-  </g>
-</svg>`)
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
 
-const TIARA_SVG = encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-  <g opacity="0.10" fill="#db2777">
-    <path d="M20,70 Q40,30 60,25 Q80,30 100,70 Z"/>
-    <circle cx="60" cy="22" r="6"/><circle cx="38" cy="42" r="4"/><circle cx="82" cy="42" r="4"/>
-    <ellipse cx="20" cy="70" rx="5" ry="4"/><ellipse cx="100" cy="70" rx="5" ry="4"/>
-    <rect x="18" y="72" width="84" height="8" rx="4"/>
-  </g>
-</svg>`)
-
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', bgImage: `url("data:image/svg+xml,${CROWN_SVG}")`, emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', bgImage: `url("data:image/svg+xml,${TIARA_SVG}")`, emoji: '🦋' },
+function safePlayer(players, name, idx = 0) {
+  if (players && name && players[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
 }
 
-export default function TicTacToe({ player, onBack }) {
+export default function TicTacToe({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const wsRef               = useRef(null)
   const mountedRef          = useRef(true)
   const prevWinner          = useRef(null)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  // Always safe — never null
+  const p = safePlayer(players, player, 0)
+
+  // Only derive opponent from server's connected list — never guess from players map
+  const bothHere    = (state?.connected?.length ?? 0) >= 2
+  const other       = state?.connected?.find(n => n !== player) || null
+  const op          = other ? safePlayer(players, other, 1) : safePlayer(players, '__waiting__', 1)
+
+  const mySymbol    = state?.symbols?.[player]    || '?'
+  const otherSymbol = other ? (state?.symbols?.[other] || '?') : '?'
+  const myScore     = state?.scores?.[player]     ?? 0
+  const otherScore  = other ? (state?.scores?.[other] ?? 0) : 0
+  const myTurn      = state?.current_turn === player && bothHere
+
+  const winLine = (() => {
+    if (!state?.winner || state.winner === 'draw') return []
+    const b = state.board || []
+    const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
+    for (const line of lines) {
+      if (line.every(i => b[i] && b[i] === b[line[0]])) return line
+    }
+    return []
+  })()
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus(`Waiting for ${other}...`) }
+
+    ws.onopen = () => {
+      if (!mountedRef.current) return
+      setStatus('Waiting for opponent...')
+    }
+
     ws.onmessage = (e) => {
       if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
+
       if (data.winner && data.winner !== prevWinner.current) {
         if (data.winner === 'draw')      playSound('draw')
-        else if (data.winner === player) playSound('win')
-        else                             playSound('lose')
+        else if (data.winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
+        else                             { playSound('lose'); vibrate(VIBRATIONS.lose) }
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
-      if (data.message)                      setStatus(data.message)
-      else if (data.connected?.length < 2)   setStatus(`Waiting for ${other}...`)
+
+      const connected = data.connected || []
+      if (data.message)              setStatus(data.message)
+      else if (connected.length < 2) setStatus('Waiting for opponent...')
       else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
       else if (data.winner === player)        setStatus('🎉 You won!')
       else if (data.winner)                  setStatus(`${data.winner} won!`)
       else if (data.current_turn === player) setStatus('⭐ Your turn!')
       else                                   setStatus(`${data.current_turn}'s turn...`)
     }
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
+
+    ws.onclose = () => {
+      if (!mountedRef.current) return
+      setStatus('Disconnected. Reconnecting...')
+      setTimeout(connect, 2000)
+    }
     ws.onerror = () => ws.close()
   }, [player])
 
   useEffect(() => {
     mountedRef.current = true
     connect()
-    return () => { mountedRef.current = false; wsRef.current?.close() }
+    return () => {
+      mountedRef.current = false
+      wsRef.current?.close()
+    }
   }, [connect])
 
   const move = (i) => {
-    if (!state || state.winner || state.current_turn !== player) return
-    if (state.board[i] || state.connected?.length < 2) return
+    if (!state || state.winner || state.current_turn !== player || !bothHere) return
+    if (state.board?.[i]) return
+    vibrate(VIBRATIONS.tap)
     playSound('place')
     wsRef.current?.send(JSON.stringify({ type: 'move', index: i }))
   }
 
   const rematch = () => {
+    vibrate(VIBRATIONS.pick)
     playSound('rematch')
     wsRef.current?.send(JSON.stringify({ type: 'rematch' }))
   }
 
-  const mySymbol    = state?.symbols?.[player] || '?'
-  const otherSymbol = state?.symbols?.[other]  || '?'
-  const myScore     = state?.scores?.[player]  ?? 0
-  const otherScore  = state?.scores?.[other]   ?? 0
-  const bothHere    = state?.connected?.length === 2
-  const myTurn      = state?.current_turn === player && bothHere && !state?.winner
+  const statusBg =
+    state?.winner === player ? p.light :
+    state?.winner === 'draw' ? '#fef9c3' :
+    state?.winner            ? '#fee2e2' :
+    myTurn                   ? '#ede9fe' : '#f1f5f9'
 
-  const winLine = (() => {
-    if (!state?.winner || state.winner === 'draw') return []
-    const b = state.board
-    const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
-    for (const line of lines) {
-      const [a, b2, c] = line
-      if (b[a] && b[a] === b[b2] && b[a] === b[c]) return line
-    }
-    return []
-  })()
-
-  const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : myTurn ? p.light : '#f1f5f9'
-  const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : myTurn ? p.color : '#64748b'
+  const statusColor =
+    state?.winner === player ? p.color :
+    state?.winner === 'draw' ? '#92400e' :
+    state?.winner            ? '#dc2626' :
+    myTurn                   ? '#6d28d9' : '#64748b'
 
   return (
-    <div style={{ ...s.wrap, background: p.bg, backgroundImage: p.bgImage, backgroundSize: '120px 120px', backgroundRepeat: 'repeat' }}>
+    <div style={{ ...s.wrap, background: p.bg }}>
+      {/* Header */}
       <div style={s.header}>
         <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
-        <div style={s.title}>Tic Tac Toe</div>
+        <div style={s.title}>Tic Tac Toe ⭕</div>
         <div style={{ width: 64 }} />
       </div>
 
+      {/* Scores */}
       <div style={s.scoreBar}>
         <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
           <span style={{ fontSize: 22 }}>{p.emoji}</span>
@@ -122,47 +142,93 @@ export default function TicTacToe({ player, onBack }) {
           </div>
           <span style={{ ...s.scoreNum, color: p.color }}>{myScore}</span>
         </div>
+
         <div style={s.vs}>VS</div>
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontSize: 22 }}>{op.emoji}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, color: op.color, fontSize: 15 }}>{other}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>plays {otherSymbol}</div>
+
+        {bothHere && other ? (
+          <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
+            <span style={{ fontSize: 22 }}>{op.emoji}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: op.color, fontSize: 15 }}>{other}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>plays {otherSymbol}</div>
+            </div>
+            <span style={{ ...s.scoreNum, color: op.color }}>{otherScore}</span>
           </div>
-          <span style={{ ...s.scoreNum, color: op.color }}>{otherScore}</span>
-        </div>
+        ) : (
+          <div style={{ ...s.scoreCard, borderColor: '#e2e8f0', background: '#f8fafc' }}>
+            <span style={{ fontSize: 22 }}>👤</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, color: '#94a3b8', fontSize: 15 }}>Waiting...</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1' }}>not connected</div>
+            </div>
+            <span style={{ ...s.scoreNum, color: '#94a3b8' }}>0</span>
+          </div>
+        )}
       </div>
 
-      <div style={{ ...s.status, background: statusBg, color: statusColor }}>{status}</div>
+      {/* Status */}
+      <div style={{ ...s.status, background: statusBg, color: statusColor }}>
+        {status}
+      </div>
 
+      {/* Board */}
       <div style={s.board}>
         {(state?.board || Array(9).fill('')).map((cell, i) => {
           const isWin     = winLine.includes(i)
           const cellColor = cell === mySymbol ? p.color : op.color
           return (
-            <div key={i} onClick={() => move(i)} style={{
-              ...s.cell,
-              cursor:      myTurn && !cell ? 'pointer' : 'default',
-              background:  isWin ? '#fef08a' : '#fff',
-              borderColor: isWin ? '#eab308' : '#e2e8f0',
-              transform:   isWin ? 'scale(1.06)' : 'scale(1)',
-            }}>
-              {cell && <span style={{ fontSize: 52, fontWeight: 900, color: cellColor, animation: 'popIn 0.2s cubic-bezier(0.34,1.56,0.64,1)', display: 'block', lineHeight: 1 }}>{cell}</span>}
-              {!cell && myTurn && <span style={{ fontSize: 36, color: '#e2e8f0', userSelect: 'none' }}>·</span>}
+            <div
+              key={i}
+              onClick={() => move(i)}
+              style={{
+                ...s.cell,
+                cursor:      myTurn && !cell ? 'pointer' : 'default',
+                background:  isWin ? '#fef08a' : '#fff',
+                borderColor: isWin ? '#eab308' : '#e2e8f0',
+                transform:   isWin ? 'scale(1.06)' : 'scale(1)',
+              }}
+            >
+              {cell && (
+                <span style={{
+                  fontSize: 52, fontWeight: 900, color: cellColor,
+                  animation: 'popIn 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+                  display: 'block', lineHeight: 1,
+                }}>
+                  {cell}
+                </span>
+              )}
+              {!cell && myTurn && (
+                <span style={{ fontSize: 36, color: '#e2e8f0', userSelect: 'none' }}>·</span>
+              )}
             </div>
           )
         })}
       </div>
 
+      {/* Rematch */}
       {state?.winner && bothHere && (
-        <button onClick={rematch} style={{ ...s.rematchBtn, background: p.color }}>🔄 Play Again</button>
+        <button onClick={rematch} style={{ ...s.rematchBtn, background: p.color }}>
+          🔄 Play Again
+        </button>
       )}
+
+      {/* Waiting */}
       {!bothHere && (
         <div style={s.waiting}>
           <div style={{ ...s.waitingDot, background: p.color }} />
-          Waiting for {other} to join...
+          Waiting for opponent to join...
         </div>
       )}
+
+      <style>{`
+        @keyframes popIn {
+          from { transform: scale(0.5); opacity: 0; }
+          to   { transform: scale(1);   opacity: 1; }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+        }
+      `}</style>
     </div>
   )
 }

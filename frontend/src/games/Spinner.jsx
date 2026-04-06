@@ -7,13 +7,19 @@ const WS_URL       = `${WS_PROTOCOL}://${location.host}/api/spinner/ws`
 const TOTAL_PIECES = 8
 const TAP_DURATION = 10
 
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
+function safe(players, name, idx = 0) {
+  if (players?.[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
 }
 
 const COLORS = {
-  Ariel:    '#16a34a',
+  // colors resolved dynamically
   Ella:     '#db2777',
   unclaimed: '#cbd5e1',
 }
@@ -59,9 +65,7 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
       const mid   = (start + end) / 2
       const sliceDeg = (weights[i] * 360).toFixed(0)
 
-      ctx.fillStyle = owner === 'Ariel' ? COLORS.Ariel
-                    : owner === 'Ella'  ? COLORS.Ella
-                    : COLORS.unclaimed
+      ctx.fillStyle = safe(playersRef?.current || {}, owner, 0).color || '#94a3b8'
       ctx.beginPath()
       ctx.moveTo(cx, cy)
       ctx.arc(cx, cy, r, start, end)
@@ -78,10 +82,10 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
       ctx.rotate(mid)
       ctx.textAlign = 'center'
 
-      if (owner && PLAYERS[owner]) {
+      if (owner) {
         // Owner emoji + weight %
         ctx.font = `${size < 300 ? 14 : 18}px sans-serif`
-        ctx.fillText(PLAYERS[owner].emoji, r * 0.6, -4)
+        ctx.fillText(safe(playersRef?.current || {}, owner, 0).emoji || '🎮', r * 0.6, -4)
         ctx.fillStyle = '#fff'
         ctx.font = `bold ${size < 300 ? 9 : 11}px Nunito, sans-serif`
         ctx.fillText(`${sliceDeg}°`, r * 0.6, 10)
@@ -201,9 +205,9 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
 
 // ── Tap Battle ────────────────────────────────────────────────────────────────
 function TapBattle({ state, player, onTap, tapRemaining }) {
-  const p       = PLAYERS[player]
-  const other   = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op      = PLAYERS[other]
+  const p       = safe(players, player, 0)
+  const other   = state?.connected?.find(n => n !== player) || null
+  const op      = other ? safe(players, other, 1) : null
   const myTaps  = state?.taps?.[player] ?? 0
   const oppTaps = state?.taps?.[other]  ?? 0
   const total   = myTaps + oppTaps
@@ -220,9 +224,9 @@ function TapBattle({ state, player, onTap, tapRemaining }) {
       <div style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, fontWeight: 800 }}>
           <span style={{ color: p.color }}>{p.emoji} {myTaps}</span>
-          <span style={{ color: op.color }}>{oppTaps} {op.emoji}</span>
+          <span style={{ color: op?.color || "#94a3b8" }}>{oppTaps} {op?.emoji || "👤"}</span>
         </div>
-        <div style={{ height: 16, background: op.color, borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ height: 16, background: op?.color || "#94a3b8", borderRadius: 99, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${myPct}%`, background: p.color, borderRadius: 99, transition: 'width 0.1s' }} />
         </div>
       </div>
@@ -250,7 +254,7 @@ function TapBattle({ state, player, onTap, tapRemaining }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function Spinner({ player, onBack }) {
+export default function Spinner({ player, players, onBack }) {
   const [state, setState]         = useState(null)
   const [status, setStatus]       = useState('Connecting...')
   const [spinDone, setSpinDone]   = useState(false)
@@ -258,9 +262,9 @@ export default function Spinner({ player, onBack }) {
   const wsRef                     = useRef(null)
   const prevPhase                 = useRef(null)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const p     = safe(players, player, 0)
+  const other = state?.connected?.find(n => n !== player) || null
+  const op    = other ? safe(players, other, 1) : null
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -287,11 +291,11 @@ export default function Spinner({ player, onBack }) {
 
       // Status text
       if (data.message)                    setStatus(data.message)
-      else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
+      else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else if (data.phase === 'tapping')   setStatus('Tap as fast as you can!')
       else if (data.phase === 'picking') {
         if (data.whose_turn === player)    setStatus(`${p.emoji} Your turn — tap a slice!`)
-        else                               setStatus(`${op.emoji} ${other} is picking...`)
+        else                               setStatus(`${op?.emoji || ""} ${other || "opponent"} is picking...`)
       }
       else if (data.phase === 'spinning')  setStatus('Ready to spin? 🎡')
       else if (data.phase === 'result')    setStatus('🎡 Spinning...')
@@ -334,7 +338,7 @@ export default function Spinner({ player, onBack }) {
     vibrate(VIBRATIONS.win)
     const winnerOwner = state?.pieces?.[state?.spin_result]
     if (winnerOwner) {
-      setStatus(`${PLAYERS[winnerOwner].emoji} ${winnerOwner} wins!`)
+      setStatus(`${safe(players, winnerOwner, 0).emoji} ${winnerOwner} wins!`)
     }
   }
 
@@ -345,7 +349,7 @@ export default function Spinner({ player, onBack }) {
   const winnerOwner = spinDone && phase === 'result' && state?.spin_result !== null
     ? pieces[state.spin_result]
     : null
-  const winnerPlayer = winnerOwner ? PLAYERS[winnerOwner] : null
+  const winnerPlayer = winnerOwner ? safe(players, winnerOwner, 0) : null
 
   return (
     <div style={{ ...s.wrap, background: p.bg }}>
@@ -375,16 +379,16 @@ export default function Spinner({ player, onBack }) {
       )}
 
       {bothHere && phase === 'picking' && state?.tap_winner && (
-        <div style={{ padding: '8px 20px', borderRadius: 12, fontWeight: 800, fontSize: 13, background: PLAYERS[state.tap_winner].light, color: PLAYERS[state.tap_winner].color, textAlign: 'center' }}>
-          {PLAYERS[state.tap_winner].emoji} {state.tap_winner} won! ({state.taps?.[state.tap_winner]} vs {state.taps?.[state.tap_winner === 'Ariel' ? 'Ella' : 'Ariel']} taps) — picks first
+        <div style={{ padding: '8px 20px', borderRadius: 12, fontWeight: 800, fontSize: 13, background: safe(players, state.tap_winner, 0).light, color: safe(players, state.tap_winner, 0).color, textAlign: 'center' }}>
+          {safe(players, state.tap_winner, 0).emoji} {state.tap_winner} won! ({state.taps?.[state.tap_winner]} vs {state.taps?.[state?.connected?.find(n => n !== state.tap_winner)]} taps) — picks first
         </div>
       )}
 
       {bothHere && phase === 'picking' && (
         <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>
-          <span style={{ color: PLAYERS.Ariel.color }}>{PLAYERS.Ariel.emoji} {pieces.filter(p => p === 'Ariel').length}</span>
+          <span style={{ color: safe(players, (state?.connected||[])[0], 0).color }}>{safe(players, (state?.connected||[])[0], 0).emoji} {pieces.filter(p => p === (state?.connected||[])[0]).length}</span>
           {' / '}
-          <span style={{ color: PLAYERS.Ella.color }}>{pieces.filter(p => p === 'Ella').length} {PLAYERS.Ella.emoji}</span>
+          <span style={{ color: safe(players, (state?.connected||[])[1], 1).color }}>{pieces.filter(p => p === (state?.connected||[])[1]).length} {safe(players, (state?.connected||[])[1], 1).emoji}</span>
           {' — '}{TOTAL_PIECES - (state?.current_pick || 0)} left
         </div>
       )}

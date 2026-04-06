@@ -1,347 +1,322 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/shooter/ws`
 
-const PLAYERS = {
-  Ariel: { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  Ella:  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+const FALLBACKS = [
+  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
+  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
+  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
+  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
+]
+function safe(players, name, idx = 0) {
+  if (players?.[name]) return players[name]
+  return FALLBACKS[idx % FALLBACKS.length]
+}
+
+function playGunshot() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const bufferSize = ctx.sampleRate * 0.08
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++)
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3)
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(800, ctx.currentTime)
+    filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.08)
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(1.2, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+    source.connect(filter); filter.connect(gain); gain.connect(ctx.destination)
+    source.start()
+    setTimeout(() => ctx.close(), 300)
+  } catch (e) {}
 }
 
 function BulletBar({ count, max, color }) {
   return (
-    <div style={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 5, justifyContent: 'center', padding: '8px 0' }}>
       {Array(max).fill(null).map((_, i) => (
         <div key={i} style={{
-          width: 14, height: 22, borderRadius: 3,
-          background: i < count ? color : '#e2e8f0',
-          transition: 'background 0.2s',
-          fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 14, height: 32, borderRadius: 3,
+          background: i < count ? `linear-gradient(to bottom, ${color}, ${color}cc)` : '#1e293b',
+          boxShadow: i < count ? `0 2px 8px ${color}66` : 'none',
+          transition: 'all 0.2s', position: 'relative', overflow: 'hidden',
         }}>
-          {i < count ? '🔫' : ''}
+          {i < count && <div style={{ position: 'absolute', top: 3, left: '50%', transform: 'translateX(-50%)', width: 4, height: 4, borderRadius: '50%', background: 'rgba(255,255,255,0.5)' }} />}
         </div>
       ))}
     </div>
   )
 }
 
-export default function Shooter({ player, onBack }) {
-  const [state, setState]           = useState(null)
-  const [status, setStatus]         = useState('Connecting...')
-  const [feedback, setFeedback]     = useState(null)
-  const [figureAnim, setFigureAnim] = useState(false)
-  const wsRef                       = useRef(null)
-  const mountedRef                  = useRef(true)
-  const prevFigure                  = useRef(null)
-  const prevPhase                   = useRef(null)
-  const feedbackTimer               = useRef(null)
-  const shootCooldown               = useRef(false)  // prevent double fire
+export default function Shooter({ player, players, onBack }) {
+  const [state, setState]    = useState(null)
+  const [floatMsg, setFloat] = useState(null)
+  const [figKey, setFigKey]  = useState(0)
+  const [flash, setFlash]    = useState(null)
+  const [muzzle, setMuzzle]  = useState(false)
+  const wsRef                = useRef(null)
+  const mountedRef           = useRef(true)
+  const cooldown             = useRef(false)
+  const prevPhase            = useRef(null)
+  const prevFigId            = useRef(null)
 
-  const p     = PLAYERS[player]
-  const other = player === 'Ariel' ? 'Ella' : 'Ariel'
-  const op    = PLAYERS[other]
+  const p = safe(players, player, 0)
 
-  const showFeedback = (text, color) => {
-    clearTimeout(feedbackTimer.current)
-    setFeedback({ text, color, key: Date.now() })
-    feedbackTimer.current = setTimeout(() => {
-      if (mountedRef.current) setFeedback(null)
-    }, 900)
-  }
-
-  useEffect(() => {
-    mountedRef.current = true
+  const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-
-    ws.onopen = () => {
-      if (!mountedRef.current) return
-      setStatus(`Waiting for ${other}...`)
-    }
-
+    ws.onopen = () => {}
     ws.onmessage = (e) => {
       if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
-
-      if (data.figure && data.figure !== prevFigure.current) {
-        setFigureAnim(false)
-        setTimeout(() => { if (mountedRef.current) setFigureAnim(true) }, 20)
-        prevFigure.current = data.figure
+      if (data.figure && data.figure.id !== prevFigId.current) {
+        prevFigId.current = data.figure.id
+        setFigKey(k => k + 1)
       }
-      if (!data.figure) prevFigure.current = null
-
-      if (data.last_shot?.player === player) {
-        const shot = data.last_shot
-        if (shot.result === 'hit') {
-          showFeedback(`🎯 +${shot.points}`, '#16a34a')
-          playSound('win')
-          vibrate([30, 20, 60])
-        } else if (shot.result === 'wrong') {
-          showFeedback(`❌ ${shot.points} ${shot.emoji}`, '#ef4444')
-          playSound('lose')
-          vibrate([100, 50, 100])
-        } else {
-          showFeedback('💨 Miss!', '#94a3b8')
-          vibrate(20)
-        }
-      }
-
+      if (!data.figure) prevFigId.current = null
       if (data.phase !== prevPhase.current) {
         if (data.phase === 'countdown') playSound('rematch')
         if (data.phase === 'result') {
-          const my  = data.scores?.[player] ?? 0
-          const opp = data.scores?.[other]  ?? 0
-          if (my > opp)      { playSound('win');  vibrate(VIBRATIONS.win)  }
-          else if (my < opp) { playSound('lose'); vibrate(VIBRATIONS.lose) }
-          else               { playSound('draw'); vibrate(VIBRATIONS.draw) }
+          const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
+          if (winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
+          else { playSound('lose'); vibrate(VIBRATIONS.lose) }
         }
         prevPhase.current = data.phase
       }
-
-      if (data.message)                    setStatus(data.message)
-      else if (data.connected?.length < 2) setStatus(`Waiting for ${other}...`)
-      else if (data.phase === 'countdown') setStatus('Get ready...')
-      else if (data.phase === 'playing') {
-        const remaining = data.bullets?.[player] ?? 0
-        if (remaining === 0)          setStatus('Out of bullets! 🚫')
-        else if (data.figure?.shoot)  setStatus('🦹 VILLAIN! Tap it!')
-        else if (data.figure)         setStatus("🐾 DON'T tap!")
-        else                          setStatus('👀 Wait for it...')
-      }
-      else if (data.phase === 'result') {
-        const my  = data.scores?.[player] ?? 0
-        const opp = data.scores?.[other]  ?? 0
-        if (my > opp)      setStatus('🎉 You win!')
-        else if (my < opp) setStatus(`${op.emoji} ${other} wins!`)
-        else               setStatus("🤝 It's a draw!")
-      }
     }
-
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
+    ws.onclose = () => { if (mountedRef.current) setTimeout(connect, 2000) }
     ws.onerror = () => ws.close()
-
-    return () => {
-      mountedRef.current = false
-      clearTimeout(feedbackTimer.current)
-      ws.close()
-    }
   }, [player])
 
-  // ── Shoot — with cooldown to prevent double fire on mobile ─────────────────
+  useEffect(() => {
+    mountedRef.current = true
+    connect()
+    return () => { mountedRef.current = false; wsRef.current?.close() }
+  }, [connect])
+
+  const triggerFlash = (type) => {
+    setFlash(type); setMuzzle(true)
+    setTimeout(() => { if (mountedRef.current) { setFlash(null); setMuzzle(false) } }, 180)
+  }
+
   const shoot = () => {
-    if (state?.phase !== 'playing') return
-    if ((state?.bullets?.[player] ?? 0) <= 0) return
-    if (shootCooldown.current) return   // block double fire
-
-    shootCooldown.current = true
-    setTimeout(() => { shootCooldown.current = false }, 200)
-
+    if (!state || state.phase !== 'playing' || cooldown.current) return
+    if ((state.bullets?.[player] ?? 0) <= 0) return
+    cooldown.current = true
+    setTimeout(() => { cooldown.current = false }, 250)
+    playGunshot()
     vibrate(VIBRATIONS.tap)
-    playSound('shoot')
+    const fig = state.figure
+    if (!fig)                    { triggerFlash('miss');  showFloat('💨 Miss!', '#94a3b8') }
+    else if (fig.type==='villain') { triggerFlash('hit');   showFloat('+1 🎯', p.color) }
+    else                          { triggerFlash('wrong'); showFloat('-1 💔', '#ef4444') }
     wsRef.current?.send(JSON.stringify({ type: 'shoot' }))
   }
 
-  // Use only onPointerDown — works for both mouse and touch, fires once per tap
-  const handleFigureTap = (e) => {
-    e.preventDefault()
-    shoot()
+  const showFloat = (label, color) => {
+    const key = Date.now()
+    setFloat({ label, color, key })
+    setTimeout(() => { if (mountedRef.current) setFloat(null) }, 900)
   }
 
-  const sendReset = () => {
-    prevPhase.current  = null
-    prevFigure.current = null
-    setFeedback(null)
-    wsRef.current?.send(JSON.stringify({ type: 'reset' }))
-  }
+  const sendStart = () => wsRef.current?.send(JSON.stringify({ type: 'start' }))
+  const reset = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type: 'reset' })) }
 
-  const phase      = state?.phase
-  const myBullets  = state?.bullets?.[player]  ?? 8
-  const oppBullets = state?.bullets?.[other]   ?? 8
-  const myScore    = state?.scores?.[player]   ?? 0
-  const otherScore = state?.scores?.[other]    ?? 0
-  const myHits     = state?.hits?.[player]     ?? 0
-  const oppHits    = state?.hits?.[other]      ?? 0
-  const figure     = state?.figure
-  const bothHere   = state?.connected?.length === 2
-  const myWon      = phase === 'result' && myScore > otherScore
-  const oppWon     = phase === 'result' && otherScore > myScore
-  const canShoot   = phase === 'playing' && myBullets > 0
-  const figNum     = Math.min((state?.figures_done ?? 0) + (figure ? 1 : 0), state?.total ?? 20)
+  if (!state) return (
+    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' }}>
+      <div style={{ fontSize:64 }}>🔫</div>
+      <div style={{ marginTop:16, color:'#475569', fontSize:16 }}>Connecting...</div>
+    </div>
+  )
 
-  return (
-    <div style={{ ...s.wrap, background: p.bg }}>
-      <style>{`
-        @keyframes feedbackPop {
-          0%   { opacity: 1; transform: translateY(0) scale(1.2); }
-          100% { opacity: 0; transform: translateY(-70px) scale(0.8); }
-        }
-        @keyframes figPop {
-          from { transform: scale(0.2); opacity: 0; }
-          to   { transform: scale(1);   opacity: 1; }
-        }
-      `}</style>
+  const { phase, figure, countdown, scores={}, bullets={}, connected=[], figures_done=0, total=20, host } = state
+  const myBullets  = bullets[player] ?? 0
+  const maxBullets = state.max_bullets ?? 8
+  const isHost     = player === host
+  const isVillain  = figure?.type === 'villain'
+  const flashColors = { hit:'rgba(34,197,94,0.25)', miss:'rgba(148,163,184,0.18)', wrong:'rgba(239,68,68,0.28)' }
 
-      <div style={s.header}>
-        <button onClick={onBack} style={{ ...s.backBtn, color: p.color }}>← Back</button>
-        <div style={s.title}>🔫 Quick Shot!</div>
-        <div style={{ width: 64 }} />
+  // ── LOBBY ──────────────────────────────────────────────────────────────────
+  if (phase === 'lobby') return (
+    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, fontFamily:'sans-serif' }}>
+      <button onClick={onBack} style={{ position:'absolute', top:16, left:16, background:'none', border:'none', fontSize:28, cursor:'pointer', color:'#475569' }}>←</button>
+      <div style={{ fontSize:80 }}>🔫</div>
+      <h2 style={{ fontSize:28, fontWeight:900, color:'#fff', margin:'12px 0 4px' }}>Quick Shot!</h2>
+      <p style={{ color:'#64748b', fontSize:14, margin:'0 0 28px' }}>{connected.length} / 4 players in lobby</p>
+
+      <div style={{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', marginBottom:32 }}>
+        {connected.map((name, i) => {
+          const pi = safe(players, name, i)
+          return (
+            <div key={name} style={{ display:'flex', alignItems:'center', gap:8, background:`${pi.color}22`, border:`2px solid ${pi.color}55`, borderRadius:20, padding:'8px 18px' }}>
+              <span style={{ fontSize:20 }}>{pi.emoji}</span>
+              <span style={{ fontWeight:700, color:pi.color }}>{name}</span>
+              {name === host && <span style={{ fontSize:11, color:pi.color, opacity:0.7 }}>(host)</span>}
+            </div>
+          )
+        })}
+        {connected.length < 2 && (
+          <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.05)', border:'2px solid rgba(255,255,255,0.08)', borderRadius:20, padding:'8px 18px' }}>
+            <span style={{ fontSize:20 }}>👤</span>
+            <span style={{ color:'#475569' }}>Waiting...</span>
+          </div>
+        )}
       </div>
 
-      <div style={s.scoreBar}>
-        <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
-          <span>{p.emoji}</span>
-          <span style={{ fontWeight: 900, color: p.color, fontSize: 22 }}>{myScore}</span>
-        </div>
-        <div style={{ textAlign: 'center', minWidth: 56 }}>
-          <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>ROUND</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: '#1e1b4b', fontFamily: 'monospace' }}>
-            {figNum}/{state?.total ?? 20}
-          </div>
-        </div>
-        <div style={{ ...s.scoreCard, borderColor: op.color, background: op.light }}>
-          <span style={{ fontWeight: 900, color: op.color, fontSize: 22 }}>{otherScore}</span>
-          <span>{op.emoji}</span>
-        </div>
-      </div>
-
-      <div style={{
-        ...s.status,
-        background: figure?.shoot ? '#fef9c3' : figure ? '#fee2e2' : myWon ? p.light : oppWon ? op.light : '#f1f5f9',
-        color:      figure?.shoot ? '#92400e'  : figure ? '#dc2626' : myWon ? p.color : oppWon ? op.color : '#64748b',
-        fontSize:   figure ? 17 : 14,
-      }}>
-        {status}
-      </div>
-
-      {!bothHere && (
-        <div style={s.waiting}>
-          <div style={{ ...s.waitingDot, background: p.color }} />
-          Waiting for {other} to join...
-        </div>
-      )}
-
-      {bothHere && phase !== 'result' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 400, padding: '0 20px' }}>
-
-          {phase === 'countdown' && state?.countdown !== null && (
-            <div style={{ fontSize: 88, fontWeight: 900, color: p.color, lineHeight: 1, animation: 'figPop 0.3s ease' }}>
-              {state.countdown === 0 ? 'GO!' : state.countdown}
-            </div>
-          )}
-
-          {(phase === 'playing' || phase === 'countdown') && (
-            <div style={{
-              width: '100%', height: 280,
-              background: '#fff', borderRadius: 24,
-              border: `3px solid ${figure?.shoot ? '#eab308' : figure ? '#ef4444' : '#e2e8f0'}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: figure ? `0 6px 24px ${figure.shoot ? '#eab30844' : '#ef444422'}` : '0 2px 12px #0001',
-              transition: 'border-color 0.2s, box-shadow 0.2s',
-              position: 'relative', overflow: 'hidden',
-            }}>
-              {figure && (
-                <div
-                  onPointerDown={canShoot ? handleFigureTap : undefined}
-                  style={{
-                    fontSize: 72, lineHeight: 1,
-                    cursor: canShoot ? 'pointer' : 'default',
-                    animation: figureAnim ? 'figPop 0.25s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
-                    userSelect: 'none', WebkitUserSelect: 'none',
-                    touchAction: 'none',
-                    padding: 16, borderRadius: 20,
-                    background: canShoot ? (figure.shoot ? '#fef9c333' : '#fee2e222') : 'transparent',
-                    border: canShoot ? `2px dashed ${figure.shoot ? '#eab308' : '#fca5a5'}` : '2px dashed transparent',
-                    transition: 'background 0.15s',
-                  }}
-                >
-                  {figure.emoji}
-                </div>
-              )}
-
-              {!figure && phase === 'playing' && (
-                <div style={{ fontSize: 40, color: '#e2e8f0' }}>👁️</div>
-              )}
-
-              {feedback && (
-                <div key={feedback.key} style={{
-                  position: 'absolute', top: '30%',
-                  fontSize: 32, fontWeight: 900,
-                  color: feedback.color,
-                  animation: 'feedbackPop 0.9s ease forwards',
-                  pointerEvents: 'none',
-                  textShadow: '0 2px 6px #0002',
-                }}>
-                  {feedback.text}
-                </div>
-              )}
-            </div>
-          )}
-
-          {phase === 'playing' && (
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: p.color, minWidth: 52 }}>{p.emoji} You</span>
-                <BulletBar count={myBullets} max={state?.max_bullets ?? 8} color={p.color} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: op.color, minWidth: 52 }}>{op.emoji} {other}</span>
-                <BulletBar count={oppBullets} max={state?.max_bullets ?? 8} color={op.color} />
-              </div>
-            </div>
-          )}
-
-          {phase === 'playing' && (
-            <div style={{ display: 'flex', gap: 16, fontSize: 12, fontWeight: 700 }}>
-              <span style={{ color: '#92400e' }}>🦹🧟👺 Tap! +1</span>
-              <span style={{ color: '#dc2626' }}>🐶🐱 Skip! -1</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {phase === 'result' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 400, padding: '0 20px' }}>
-          <div style={{ fontSize: 56 }}>{myWon ? p.emoji : oppWon ? op.emoji : '🤝'}</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: myWon ? p.color : oppWon ? op.color : '#64748b' }}>
-            {myWon ? 'You win!' : oppWon ? `${other} wins!` : "It's a draw!"}
-          </div>
-
-          <div style={{ width: '100%', background: '#fff', borderRadius: 20, padding: 18, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 4px 16px #0001' }}>
-            {[
-              { label: 'Score',        me: myScore,                       opp: otherScore },
-              { label: 'Villains hit', me: myHits,                        opp: oppHits    },
-              { label: 'Wrong shots',  me: state?.wastes?.[player] ?? 0,  opp: state?.wastes?.[other] ?? 0 },
-              { label: 'Bullets left', me: myBullets,                     opp: oppBullets },
-            ].map(row => (
-              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 900, color: p.color, minWidth: 28, textAlign: 'right', fontSize: 16 }}>{row.me}</span>
-                <span style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>{row.label}</span>
-                <span style={{ fontWeight: 900, color: op.color, minWidth: 28, fontSize: 16 }}>{row.opp}</span>
-              </div>
-            ))}
-          </div>
-
-          <button onClick={sendReset} style={{ ...s.bigBtn, background: p.color }}>
-            🔄 Play Again
-          </button>
+      {isHost ? (
+        <button onClick={sendStart} disabled={connected.length < 2} style={{
+          background: connected.length >= 2 ? p.color : '#1e293b',
+          color:'#fff', border:'none', borderRadius:16, padding:'16px 40px',
+          fontSize:20, fontWeight:'bold',
+          cursor: connected.length >= 2 ? 'pointer' : 'not-allowed',
+          boxShadow: connected.length >= 2 ? `0 4px 20px ${p.color}55` : 'none',
+          transition:'all 0.2s',
+        }}>
+          {connected.length < 2 ? 'Waiting for players...' : '🔫 Start Game!'}
+        </button>
+      ) : (
+        <div style={{ color:'#64748b', fontSize:16, textAlign:'center' }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>⏳</div>
+          Waiting for <strong style={{ color:'#94a3b8' }}>{host}</strong> to start...
         </div>
       )}
     </div>
   )
-}
 
-const s = {
-  wrap:       { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 32, gap: 12 },
-  header:     { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', background: '#ffffffcc', backdropFilter: 'blur(8px)', boxShadow: '0 1px 0 #e2e8f0' },
-  backBtn:    { background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', padding: '6px 12px', borderRadius: 10, fontFamily: 'inherit' },
-  title:      { fontSize: 18, fontWeight: 900, color: '#1e1b4b' },
-  scoreBar:   { display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 400, padding: '0 16px' },
-  scoreCard:  { display: 'flex', alignItems: 'center', gap: 8, border: '2px solid', borderRadius: 14, padding: '8px 14px', flex: 1, justifyContent: 'center' },
-  status:     { padding: '10px 24px', borderRadius: 12, fontWeight: 800, textAlign: 'center', minWidth: 240, maxWidth: 380, transition: 'all 0.2s' },
-  bigBtn:     { padding: '14px 36px', borderRadius: 16, border: 'none', color: '#fff', fontSize: 18, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 16px #0002' },
-  waiting:    { display: 'flex', alignItems: 'center', gap: 10, color: '#94a3b8', fontWeight: 700, fontSize: 15 },
-  waitingDot: { width: 10, height: 10, borderRadius: '50%', animation: 'pulse 1.5s ease-in-out infinite' },
+  // ── COUNTDOWN ──────────────────────────────────────────────────────────────
+  if (phase === 'countdown') return (
+    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' }}>
+      <div style={{ fontSize:140, fontWeight:900, color:p.color, lineHeight:1, textShadow:`0 0 60px ${p.color}88` }}>
+        {countdown === 0 ? 'GO!' : countdown}
+      </div>
+      <div style={{ color:'#475569', fontSize:20, marginTop:16 }}>Get ready!</div>
+    </div>
+  )
+
+  // ── RESULT ─────────────────────────────────────────────────────────────────
+  if (phase === 'result') {
+    const sorted = Object.entries(scores).sort((a,b) => b[1]-a[1])
+    const winner = sorted[0]?.[0]
+    const iWon   = winner === player
+    return (
+      <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, fontFamily:'sans-serif' }}>
+        <div style={{ fontSize:80 }}>{iWon ? '🏆' : '💀'}</div>
+        <h2 style={{ fontSize:32, margin:'12px 0 4px', color:iWon ? p.color : '#fff', fontWeight:900 }}>
+          {iWon ? 'You Won!' : `${winner} Wins!`}
+        </h2>
+        <p style={{ color:'#475569', margin:'0 0 28px' }}>Final scores</p>
+        <div style={{ width:'100%', maxWidth:340 }}>
+          {sorted.map(([name, score], i) => {
+            const pi = safe(players, name, i)
+            return (
+              <div key={name} style={{ display:'flex', alignItems:'center', gap:12, background:name===player?`${pi.color}22`:'rgba(255,255,255,0.05)', border:`2px solid ${name===player?pi.color:'rgba(255,255,255,0.1)'}`, borderRadius:16, padding:'12px 20px', marginBottom:10 }}>
+                <span style={{ fontSize:24 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
+                <span style={{ fontSize:20 }}>{pi.emoji}</span>
+                <span style={{ fontWeight:800, color:name===player?pi.color:'#fff', flex:1, fontSize:16 }}>{name}</span>
+                <span style={{ fontSize:28, fontWeight:900, color:name===player?pi.color:'#fff' }}>{score}</span>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display:'flex', gap:12, marginTop:24 }}>
+          <button onClick={onBack} style={{ background:'rgba(255,255,255,0.08)', border:'none', borderRadius:14, padding:'12px 24px', fontSize:16, cursor:'pointer', color:'#fff' }}>← Back</button>
+          <button onClick={reset} style={{ background:p.color, color:'#fff', border:'none', borderRadius:14, padding:'12px 28px', fontSize:16, fontWeight:'bold', cursor:'pointer', boxShadow:`0 4px 16px ${p.color}55` }}>🔄 Play Again</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── PLAYING ────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none', position:'relative', overflow:'hidden' }}>
+      {flash && <div style={{ position:'fixed', inset:0, zIndex:50, background:flashColors[flash], pointerEvents:'none', animation:'screenFlash 0.18s ease-out forwards' }} />}
+
+      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 16px', background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.07)', zIndex:10 }}>
+        <button onClick={onBack} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#475569' }}>←</button>
+        <div style={{ display:'flex', gap:20 }}>
+          {connected.map((name, i) => {
+            const pi = safe(players, name, i)
+            return (
+              <div key={name} style={{ display:'flex', alignItems:'center', gap:5 }}>
+                <span style={{ fontSize:16 }}>{pi.emoji}</span>
+                <span style={{ fontWeight:900, color:pi.color, fontSize:20 }}>{scores[name]??0}</span>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ color:'#334155', fontSize:13, fontWeight:700 }}>{figures_done}/{total}</div>
+      </div>
+
+      <div style={{ width:'100%', height:4, background:'rgba(255,255,255,0.06)' }}>
+        <div style={{ height:'100%', width:`${(figures_done/total)*100}%`, background:p.color, transition:'width 0.5s', boxShadow:`0 0 10px ${p.color}` }} />
+      </div>
+
+      <BulletBar count={myBullets} max={maxBullets} color={p.color} />
+
+      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', position:'relative', width:'100%', maxWidth:420, padding:'0 24px' }}>
+        {floatMsg && (
+          <div key={floatMsg.key} style={{ position:'absolute', top:'15%', left:'50%', fontSize:30, fontWeight:900, color:floatMsg.color, animation:'floatUp 0.9s ease-out forwards', pointerEvents:'none', whiteSpace:'nowrap', zIndex:20, textShadow:`0 2px 12px ${floatMsg.color}88` }}>
+            {floatMsg.label}
+          </div>
+        )}
+
+        <div key={figKey} onPointerDown={shoot} style={{
+          width:230, height:230, borderRadius:36,
+          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+          cursor:'pointer',
+          background: figure ? isVillain ? 'radial-gradient(circle at 40% 35%, #3d0000, #1a0000)' : 'radial-gradient(circle at 40% 35%, #003d00, #001a00)' : 'rgba(255,255,255,0.03)',
+          border:`3px solid ${figure ? isVillain ? '#ef4444' : '#22c55e' : 'rgba(255,255,255,0.07)'}`,
+          boxShadow: figure ? isVillain ? '0 0 50px #ef444455,0 0 100px #ef444422,inset 0 0 40px #ef444411' : '0 0 50px #22c55e55,0 0 100px #22c55e22,inset 0 0 40px #22c55e11' : 'none',
+          transition:'border-color 0.15s,box-shadow 0.15s',
+          animation: figure ? 'popIn 0.3s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
+        }}>
+          {figure ? (
+            <>
+              <div style={{ fontSize:100, lineHeight:1 }}>{figure.emoji}</div>
+              <div style={{ marginTop:12, fontSize:13, fontWeight:900, letterSpacing:3, color:isVillain?'#fca5a5':'#86efac', textTransform:'uppercase' }}>
+                {isVillain ? '⚡ SHOOT!' : '🚫 SPARE!'}
+              </div>
+            </>
+          ) : (
+            <div style={{ color:'rgba(255,255,255,0.12)', fontSize:16, fontWeight:700, letterSpacing:2 }}>STAND BY...</div>
+          )}
+        </div>
+
+        <div style={{ position:'relative', marginTop:28 }}>
+          {muzzle && <div style={{ position:'absolute', inset:-8, borderRadius:'50%', background:`radial-gradient(circle, ${p.color}88 0%, transparent 70%)`, animation:'muzzleFlash 0.18s ease-out forwards', pointerEvents:'none', zIndex:5 }} />}
+          <button onPointerDown={shoot} disabled={myBullets===0} style={{
+            width:90, height:90, borderRadius:'50%',
+            border:`3px solid ${myBullets>0?p.color:'#1e293b'}`,
+            background: myBullets>0 ? `radial-gradient(circle at 40% 35%, ${p.color}cc, ${p.color})` : '#0f172a',
+            fontSize:36, cursor:myBullets>0?'pointer':'not-allowed',
+            boxShadow:myBullets>0?`0 0 24px ${p.color}55,0 4px 12px #0006`:'none',
+            transform:muzzle?'scale(0.92)':'scale(1)', transition:'all 0.15s',
+            position:'relative', zIndex:10,
+            display:'flex', alignItems:'center', justifyContent:'center',
+          }}>🔫</button>
+        </div>
+
+        {myBullets===0 && <div style={{ marginTop:16, color:'#ef4444', fontSize:15, fontWeight:800, letterSpacing:1 }}>🚫 OUT OF BULLETS</div>}
+        <div style={{ marginTop:10, color:'#334155', fontSize:12, fontWeight:700, letterSpacing:1, textTransform:'uppercase' }}>
+          {figure ? 'Tap target or button' : 'Wait for target...'}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes floatUp { from{opacity:1;transform:translateX(-50%) translateY(0)} to{opacity:0;transform:translateX(-50%) translateY(-70px)} }
+        @keyframes popIn   { 0%{transform:scale(0.3);opacity:0} 70%{transform:scale(1.08)} 100%{transform:scale(1);opacity:1} }
+        @keyframes screenFlash { 0%{opacity:1} 100%{opacity:0} }
+        @keyframes muzzleFlash { 0%{opacity:1;transform:scale(0.8)} 100%{opacity:0;transform:scale(1.4)} }
+      `}</style>
+    </div>
+  )
 }

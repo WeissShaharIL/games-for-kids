@@ -41,9 +41,7 @@ async def broadcast(msg: dict):
 
 @router.websocket("/ws/{player}")
 async def lego_ws(websocket: WebSocket, player: str):
-    if player not in ("Ariel", "Ella"):
-        await websocket.close(code=4001)
-        return
+ 
 
     await websocket.accept()
     game.connections[player] = websocket
