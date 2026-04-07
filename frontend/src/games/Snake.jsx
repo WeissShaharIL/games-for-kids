@@ -82,14 +82,15 @@ export default function Snake({ player, players, onBack }) {
       const connected = data.connected || []
       if (data.message)                setStatus(data.message)
       else if (connected.length < 2)   setStatus('Waiting for opponent...')
-      else if (data.countdown > 0)     setStatus(`Starting in ${data.countdown}...`)
-      else if (data.countdown === 0) {
-        setStatus('Go! 🐍')
+      else if (data.countdown > 0) {
+        setStatus(`Starting in ${data.countdown}...`)
         showArrowRef.current = true
         clearTimeout(arrowTimerRef.current)
-        arrowTimerRef.current = setTimeout(() => {
-          showArrowRef.current = false
-        }, 2000)
+      }
+      else if (data.countdown === 0) {
+        setStatus('Go! 🐍')
+        showArrowRef.current = false
+        clearTimeout(arrowTimerRef.current)
       }
       else if (data.winner === 'draw') setStatus('🤝 Draw!')
       else if (data.winner === player) setStatus('🎉 You won!')

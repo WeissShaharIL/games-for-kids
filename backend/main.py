@@ -14,6 +14,8 @@ from games.airhockey  import router as airhockey_router
 from games.lego       import router as lego_router
 from games.mountain   import router as mountain_router
 from games.tugofwar   import router as tugofwar_router
+from games.chefshowdown import router as chefshowdown_router
+
 import online as registry
 
 load_dotenv()
@@ -84,3 +86,4 @@ app.include_router(airhockey_router, prefix="/airhockey")
 app.include_router(lego_router,      prefix="/lego")
 app.include_router(mountain_router,  prefix="/mountain")
 app.include_router(tugofwar_router,  prefix="/tugofwar")
+app.include_router(chefshowdown_router, prefix="/chefshowdown")

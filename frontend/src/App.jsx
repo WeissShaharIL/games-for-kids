@@ -2,14 +2,15 @@ import { useState, useEffect, useRef } from 'react'
 import TicTacToe from './games/TicTacToe'
 import Connect4  from './games/Connect4'
 import Snake     from './games/Snake'
-import Spinner   from './games/Spinner'
+//import Spinner   from './games/Spinner'
 import Balloons  from './games/Balloons'
 import Shooter   from './games/Shooter'
 import AirHockey from './games/AirHockey'
-import Lego      from './games/Lego'
+//import Lego      from './games/Lego'
 import Mountain  from './games/Mountain'
 import WordQuiz from './games/WordQuiz'
 import TugOfWar from './games/TugOfWar'
+import ChefShowdown from './games/ChefShowdown'
 import MuteButton from './MuteButton'
 
 
@@ -22,10 +23,11 @@ const GAMES = [
   { id: 'snake',     name: 'Snake Race',    emoji: '🐍', desc: 'Two snakes, one apple!',         component: Snake,     ready: true  },
   { id: 'balloons',  name: 'Pop Balloons!', emoji: '🎈', desc: 'Pop as many as you can!',        component: Balloons,  ready: true  },
   { id: 'shooter',   name: 'Quick Shot!',   emoji: '🔫', desc: 'Shoot villains, spare pets!',    component: Shooter,   ready: true  },
-  { id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',   component: Spinner,   ready: true  },
-  { id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',                component: Lego,      ready: true  },
+  //{ id: 'spinner',   name: 'Spinner',       emoji: '🎡', desc: 'Tap battle + spin to decide!',   component: Spinner,   ready: true  },
+  //{ id: 'lego',      name: 'LEGO Builder',  emoji: '🧱', desc: 'Build together!',                component: Lego,      ready: true  },
   { id: 'mountain',  name: 'Mountain Quiz', emoji: '🏔️', desc: 'Math quiz up the mountain!',    component: Mountain,  ready: true  },
   { id: 'tugofwar',  name: 'Tug of War', emoji: '💪', desc: 'Pull the rope!', component: TugOfWar, ready: true },
+  { id: 'chefshowdown', name: 'Chef Showdown', emoji: '🍳', desc: '60s to impress the judges!', component: ChefShowdown, ready: true },
   { id: 'wordquiz',  name: 'Word Quiz', emoji: '🔤', desc: 'Hear it, tap it!', component: WordQuiz, ready: true },
 
 
