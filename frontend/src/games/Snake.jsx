@@ -195,19 +195,65 @@ export default function Snake({ player, players, onBack }) {
           ctx.globalAlpha = 1
 
           // Direction arrow on MY snake head for 2 seconds after GO
-          if (name === player && snake.alive && showArrowRef.current && snake.body.length > 0) {
-            const [hr, hc] = snake.body[0]
-            const arrowMap = { UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→' }
-            const arrow = arrowMap[snake.dir] || '→'
-            ctx.font = `bold ${CELL * 1.5}px sans-serif`
-            ctx.textAlign = 'center'
-            ctx.textBaseline = 'middle'
-            ctx.shadowColor = '#000'; ctx.shadowBlur = 6
-            ctx.fillStyle = '#fff'
-            ctx.fillText(arrow, hc*CELL + CELL/2, hr*CELL - CELL * 0.9)
+          // Arrow pointing DOWN at my snake head during countdown
+        if (name === player && snake.alive && showArrowRef.current && snake.body.length > 0) {
+          const [hr, hc] = snake.body[0]
+          const cx = hc * CELL + CELL / 2
+          const cy = hr * CELL - CELL * 0.6   // just above the head
+
+          // Blink: visible for 400ms, hidden for 200ms
+          const blink = Math.floor(Date.now() / 400) % 2 === 0
+
+          if (blink) {
+            const bob = Math.sin(Date.now() / 200) * 3  // gentle bob up/down
+
+            // Glow halo behind arrow
+            const glow = ctx.createRadialGradient(cx, cy - 10 + bob, 2, cx, cy - 10 + bob, CELL * 1.4)
+            glow.addColorStop(0, pi.color + 'cc')
+            glow.addColorStop(1, pi.color + '00')
+            ctx.fillStyle = glow
+            ctx.beginPath()
+            ctx.arc(cx, cy - 10 + bob, CELL * 1.4, 0, Math.PI * 2)
+            ctx.fill()
+
+            // Draw a proper downward chevron arrow shape (not text)
+            const aw = CELL * 1.1   // arrow width
+            const ah = CELL * 1.3   // arrow height
+            const ax = cx
+            const ay = cy + bob
+
+            ctx.save()
+            // Outer shadow
+            ctx.shadowColor = '#000'
+            ctx.shadowBlur = 12
+
+            // Arrow body (filled polygon pointing down)
+            ctx.beginPath()
+            ctx.moveTo(ax,        ay + ah * 0.55)   // tip bottom center
+            ctx.lineTo(ax - aw/2, ay - ah * 0.25)  // top left
+            ctx.lineTo(ax - aw/4, ay - ah * 0.25)  // inner left notch
+            ctx.lineTo(ax - aw/4, ay - ah * 0.55)  // top inner left
+            ctx.lineTo(ax + aw/4, ay - ah * 0.55)  // top inner right
+            ctx.lineTo(ax + aw/4, ay - ah * 0.25)  // inner right notch
+            ctx.lineTo(ax + aw/2, ay - ah * 0.25)  // top right
+            ctx.closePath()
+
+            // Gradient fill: player color → white
+            const arrowGrad = ctx.createLinearGradient(ax, ay - ah * 0.55, ax, ay + ah * 0.55)
+            arrowGrad.addColorStop(0, '#ffffff')
+            arrowGrad.addColorStop(1, pi.color)
+            ctx.fillStyle = arrowGrad
+            ctx.fill()
+
+            // White stroke outline
             ctx.shadowBlur = 0
-            ctx.textBaseline = 'alphabetic'
+            ctx.strokeStyle = '#ffffffcc'
+            ctx.lineWidth = 2
+            ctx.stroke()
+
+            ctx.restore()
           }
+        }
         })
       }
 

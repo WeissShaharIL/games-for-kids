@@ -140,6 +140,59 @@ function Announcing({ dish, announceStep, judges }) {
   )
 }
 
+// ── Ready ─────────────────────────────────────────────────────────────────
+function Ready({ player, players, dish, connected, readyPlayers, onReady }) {
+  const p = safe(players, player, 0)
+  const iAmReady = readyPlayers.includes(player)
+
+  return (
+    <div style={{ ...styles.screen, background: '#0a0a1a' }}>
+      <div style={{ textAlign: 'center', padding: '0 24px', maxWidth: 360 }}>
+        <div style={{ fontSize: 72, marginBottom: 12, filter: 'drop-shadow(0 0 24px #fff3)' }}>
+          {dish?.emoji}
+        </div>
+        <h2 style={{ color: '#fff', fontWeight: 900, fontSize: 26, margin: '0 0 4px' }}>{dish?.name}</h2>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 32 }}>{dish?.description}</p>
+
+        {/* Who's ready */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 32 }}>
+          {connected.map((name, i) => {
+            const pp = safe(players, name, i)
+            const isReady = readyPlayers.includes(name)
+            return (
+              <div key={name} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: isReady ? `${pp.color}22` : '#1e293b',
+                border: `1.5px solid ${isReady ? pp.color : '#334155'}`,
+                borderRadius: 12, padding: '10px 14px',
+                transition: 'all 0.3s',
+              }}>
+                <span style={{ fontSize: 20 }}>{pp.emoji}</span>
+                <span style={{ fontWeight: 800, color: pp.color, flex: 1 }}>{name}</span>
+                <span style={{ fontSize: 18 }}>{isReady ? '✅' : '⏳'}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          onClick={onReady}
+          disabled={iAmReady}
+          style={{
+            width: '100%', padding: '16px', border: 'none', borderRadius: 14,
+            background: iAmReady ? '#1e293b' : p.color,
+            color: iAmReady ? '#475569' : '#fff',
+            fontSize: 18, fontWeight: 900, cursor: iAmReady ? 'default' : 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          {iAmReady ? '✅ Ready!' : '👨‍🍳 I\'m Ready!'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Cooking ───────────────────────────────────────────────────────────────
 function Cooking({ player, players, dish, timeLeft, onSubmit, submitted }) {
   const p = safe(players, player, 0)
@@ -265,9 +318,11 @@ function Tasting({ dish, scores, judges, onDone }) {
     const t2 = setTimeout(() => {                                                // show reactions
       if (!mountedRef.current) return
       const reacts = judgeList.map((j, i) => {
-        const s = scores?.[j.name]
-        const score = s?.score ?? 5
-        return score >= 8 ? '😍' : score >= 5 ? '😐' : '🤢'
+        // Average this judge's score across all players
+        const playerScores = Object.values(scores || {})
+        const judgeScores = playerScores.map(s => s?.judge_scores?.[i]?.score ?? 5)
+        const avg = judgeScores.length ? judgeScores.reduce((a, b) => a + b, 0) / judgeScores.length : 5
+        return avg >= 7 ? '\uD83D\uDE0D' : avg >= 4 ? '\uD83D\uDE10' : '\uD83E\uDD22'
       })
       setReactions(reacts)
       setStep(2)
@@ -472,13 +527,13 @@ export default function ChefShowdown({ player, players, onBack }) {
       if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
-      if (data.phase === 'lobby' || data.phase === 'announcing') {
+      if (data.phase === 'lobby' || data.phase === 'announcing' || data.phase === 'ready') {
         setSubmitted(false)
         tastingShownRef.current = false
         setShowTasting(false)
       }
-      // Trigger tasting animation once when judging starts
-      if (data.phase === 'judging' && !tastingShownRef.current) {
+      // Trigger tasting animation once when podium arrives (scores are fully ready)
+      if (data.phase === 'podium' && !tastingShownRef.current) {
         tastingShownRef.current = true
         setShowTasting(true)
       }
@@ -499,6 +554,7 @@ export default function ChefShowdown({ player, players, onBack }) {
   const send = (msg) => wsRef.current?.send(JSON.stringify(msg))
 
   const handleStart = () => send({ type: 'start' })
+  const handleReady = () => send({ type: 'ready' })
 
   const handleSubmit = (ingredients) => {
     if (submitted) return
@@ -519,7 +575,7 @@ export default function ChefShowdown({ player, players, onBack }) {
     </div>
   )
 
-  const { phase, connected, host, dish, announce_step, judges, scores, time_left, submissions } = state
+  const { phase, connected, host, dish, announce_step, judges, scores, time_left, submissions, ready_players } = state
   const isHost = player === host
 
   // Back button wrapper
@@ -536,9 +592,10 @@ export default function ChefShowdown({ player, players, onBack }) {
 
   if (phase === 'lobby')      return withBack(<Lobby player={player} players={players} connected={connected} host={host} onStart={handleStart} />)
   if (phase === 'announcing') return withBack(<Announcing dish={dish} announceStep={announce_step} judges={judges || JUDGES} />)
+  if (phase === 'ready')      return withBack(<Ready player={player} players={players} dish={dish} connected={connected} readyPlayers={ready_players || []} onReady={handleReady} />)
   if (phase === 'cooking')    return withBack(<Cooking player={player} players={players} dish={dish} timeLeft={time_left ?? 60} onSubmit={handleSubmit} submitted={submitted || !!submissions?.[player]} />)
-  if (phase === 'judging' && showTasting) return withBack(<Tasting dish={dish} scores={scores} judges={judges || JUDGES} onDone={() => setShowTasting(false)} />)
   if (phase === 'judging')    return withBack(<Judging scores={scores} connected={connected} players={players} />)
+  if (phase === 'podium' && showTasting) return withBack(<Tasting dish={dish} scores={scores} judges={judges || JUDGES} onDone={() => setShowTasting(false)} />)
   if (phase === 'podium')     return withBack(<Podium scores={scores} connected={connected} players={players} player={player} onRestart={handleRestart} onBack={onBack} isHost={isHost} />)
 
   return withBack(<div style={{ ...styles.screen }}><div style={{ color: '#fff' }}>...</div></div>)

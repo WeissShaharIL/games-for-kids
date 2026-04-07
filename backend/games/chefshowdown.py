@@ -2,14 +2,11 @@ import json
 import asyncio
 import random
 import time
-import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import online as registry
 
 router    = APIRouter()
 GAME_NAME = "Chef Showdown"
-
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
 DISHES = [
     {
@@ -41,7 +38,7 @@ DISHES = [
         "name": "Taco",
         "emoji": "🌮",
         "description": "a spicy beef taco",
-        "correct_order": ["🫓 Tortilla", "🥩 Beef", "🥬 Lettuce", "🍅 Salsa", "🧀 Cheese"],
+        "correct_order": ["🌯 Tortilla", "🥩 Beef", "🥬 Lettuce", "🍅 Salsa", "🧀 Cheese"],
         "extra_ingredients": ["🥑 Avocado", "🌶️ Chili", "🍋 Lemon", "🧅 Onion", "🥒 Cucumber", "🍄 Mushroom"],
     },
     {
@@ -76,6 +73,7 @@ class ChefGame:
         self.start_time    = None
         self.submissions: dict[str, dict] = {}
         self.scores: dict[str, dict]      = {}
+        self.ready_players: set           = set()
 
     def state(self) -> dict:
         d = {
@@ -85,7 +83,7 @@ class ChefGame:
             "announce_step": self.announce_step,
             "judges":        JUDGES,
             "scores":        self.scores,
-            "submissions":   {p: {"time_taken": v["time_taken"]} for p, v in self.submissions.items()},
+            "ready_players": list(self.ready_players),
             "dish": {
                 "name":            self.dish["name"],
                 "emoji":           self.dish["emoji"],
@@ -127,6 +125,19 @@ async def announce_and_cook():
         await broadcast(game.state())
         await asyncio.sleep(1.2)
 
+    # Wait for all players to press Ready
+    game.phase = "ready"
+    game.ready_players = set()
+    await broadcast(game.state())
+
+    # Poll until all ready (max 60s)
+    for _ in range(120):
+        await asyncio.sleep(0.5)
+        if game.phase != "ready":
+            return
+        if game.ready_players >= set(game.connections.keys()):
+            break
+
     game.phase = "cooking"
     game.start_time = time.time()
     await broadcast(game.state())
@@ -149,74 +160,77 @@ async def run_judging():
     await broadcast(game.state())
 
     for player, submission in game.submissions.items():
-        score_data = await ai_score(player, submission)
-        game.scores[player] = score_data
+        game.scores[player] = score_player(player, submission)
         await broadcast(game.state())
+        await asyncio.sleep(0.5)  # small delay so judging screen shows each player populating
 
     game.phase = "podium"
     await broadcast(game.state())
 
 
-async def ai_score(player: str, submission: dict) -> dict:
+def score_player(player: str, submission: dict) -> dict:
     correct    = game.dish["correct_order"]
     chosen     = submission["ingredients"]
     time_taken = submission["time_taken"]
 
-    prompt = f"""You are scoring a cooking competition. The dish is: {game.dish["name"]} ({game.dish["description"]}).
-
-The correct ingredients in the right order are: {', '.join(correct)}
-
-The player "{player}" used these ingredients in this order: {', '.join(chosen) if chosen else '(nothing)'}
-They took {time_taken:.0f} seconds out of 60.
-
-You are 3 judges: {', '.join([f"{j['emoji']} {j['name']} ({j['style']})" for j in JUDGES])}
-
-Score this player. Be fun, dramatic, short, and in character. Consider correct ingredients, wrong extras, order accuracy, and speed.
-
-Respond ONLY with valid JSON, no markdown:
-{{
-  "judge_scores": [
-    {{"judge": "Chef Marco", "score": 7, "comment": "one short dramatic sentence"}},
-    {{"judge": "Judge Yuki", "score": 8, "comment": "one short dramatic sentence"}},
-    {{"judge": "Gordon",     "score": 6, "comment": "one short dramatic sentence"}}
-  ],
-  "total": 21,
-  "speed_bonus": 5,
-  "grand_total": 26
-}}"""
-
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(
-                ANTHROPIC_API_URL,
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 400,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            text = resp.json()["content"][0]["text"].strip()
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            return json.loads(text.strip())
-    except Exception:
-        correct_set = set(correct)
-        chosen_set  = set(chosen)
-        overlap     = len(correct_set & chosen_set)
-        accuracy    = int((overlap / max(len(correct_set), 1)) * 10)
-        speed_bonus = max(0, int((60 - time_taken) / 6))
+    if not chosen:
+        comments = [
+            "An empty plate?! In my kitchen?!",
+            "Nothing. You gave us nothing.",
+            "This is the worst thing I have ever not eaten.",
+        ]
         return {
             "judge_scores": [
-                {"judge": j["name"], "score": accuracy, "comment": "Interesting attempt..."}
-                for j in JUDGES
+                {"judge": j["name"], "score": 0, "comment": comments[i]}
+                for i, j in enumerate(JUDGES)
             ],
-            "total":       accuracy * 3,
-            "speed_bonus": speed_bonus,
-            "grand_total": accuracy * 3 + speed_bonus,
+            "total": 0, "speed_bonus": 0, "grand_total": 0,
         }
+
+    correct_set = set(correct)
+    chosen_set  = set(chosen)
+    overlap     = len(correct_set & chosen_set)
+    wrong       = len(chosen_set - correct_set)
+    accuracy    = max(0, int((overlap / max(len(correct_set), 1)) * 10) - wrong)
+
+    # Order bonus: how many correct ingredients are in the right relative order
+    correct_chosen = [x for x in correct if x in chosen_set]
+    order_score = sum(1 for i, ing in enumerate(correct_chosen) if chosen.count(ing) and chosen.index(ing) == correct.index(ing))
+    order_bonus = min(2, order_score)
+
+    speed_bonus = max(0, int((60 - time_taken) / 8))
+    per_judge   = min(10, max(0, accuracy + order_bonus))
+    total       = per_judge * 3
+
+    # Judge comments based on score
+    if per_judge >= 8:
+        comments = [
+            "Magnifico! Every ingredient in its place!",
+            "Precise. Balanced. Respectful of the dish.",
+            "Finally! Someone who knows what they're doing!",
+        ]
+    elif per_judge >= 5:
+        comments = [
+            "Not bad, but my grandmother could do better.",
+            "Acceptable. Barely.",
+            "It won't kill anyone. Probably.",
+        ]
+    else:
+        comments = [
+            "What is this? A disaster on a plate!",
+            "The harmony is completely lost.",
+            "I've seen better food at a petrol station.",
+        ]
+
+    return {
+        "judge_scores": [
+            {"judge": j["name"], "score": per_judge, "comment": comments[i]}
+            for i, j in enumerate(JUDGES)
+        ],
+        "total":       total,
+        "speed_bonus": speed_bonus,
+        "grand_total": total + speed_bonus,
+    }
 
 
 @router.websocket("/ws/{player}")
@@ -242,6 +256,10 @@ async def chefshowdown_ws(websocket: WebSocket, player: str):
                     if game.loop_task is None or game.loop_task.done():
                         game.loop_task = asyncio.create_task(announce_and_cook())
                     await broadcast(game.state())
+
+            elif t == "ready" and game.phase == "ready":
+                game.ready_players.add(player)
+                await broadcast(game.state())
 
             elif t == "submit" and game.phase == "cooking":
                 if player not in game.submissions:
