@@ -248,8 +248,18 @@ export default function App() {
     pollRef.current = setInterval(poll, 3000)
     return () => clearInterval(pollRef.current)
   }, [player])
+  useEffect(() => {
+      window.history.pushState({ pwa: true }, '')
+      const onPopState = () => {
+        window.history.pushState({ pwa: true }, '')
+        setGameId(null)
+      }
+      window.addEventListener('popstate', onPopState)
+      return () => window.removeEventListener('popstate', onPopState)
+    }, [])
 
   const handleLogin = (p, t) => { setPlayer(p); setToken(t) }
+  
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>

@@ -63,8 +63,8 @@ async def auth(payload: dict):
     name = PINS.get(pin)
     if not name:
         raise HTTPException(status_code=401, detail="Wrong PIN")
-    if name in registry.get_online():
-        raise HTTPException(status_code=409, detail=f"{name} is already logged in on another device")
+    # if name in registry.get_online():
+    #     raise HTTPException(status_code=409, detail=f"{name} is already logged in on another device")
     registry.register(name)
     return {"player": name}
 
