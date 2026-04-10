@@ -11,10 +11,11 @@ from games.spinner    import router as spinner_router
 from games.balloons   import router as balloons_router
 from games.shooter    import router as shooter_router
 from games.airhockey  import router as airhockey_router
-from games.lego       import router as lego_router
+#from games.lego       import router as lego_router
+from games.wordquiz import router as wordquiz_router
 from games.mountain   import router as mountain_router
 from games.tugofwar   import router as tugofwar_router
-from games.chefshowdown import router as chefshowdown_router
+#from games.chefshowdown import router as chefshowdown_router
 
 import online as registry
 
@@ -83,7 +84,8 @@ app.include_router(spinner_router,   prefix="/spinner")
 app.include_router(balloons_router,  prefix="/balloons")
 app.include_router(shooter_router,   prefix="/shooter")
 app.include_router(airhockey_router, prefix="/airhockey")
-app.include_router(lego_router,      prefix="/lego")
+#app.include_router(lego_router,      prefix="/lego")
 app.include_router(mountain_router,  prefix="/mountain")
 app.include_router(tugofwar_router,  prefix="/tugofwar")
-app.include_router(chefshowdown_router, prefix="/chefshowdown")
+app.include_router(wordquiz_router, prefix="/wordquiz")
+#app.include_router(chefshowdown_router, prefix="/chefshowdown")

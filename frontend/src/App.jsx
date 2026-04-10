@@ -216,11 +216,11 @@ export default function App() {
     if (!savedPlayer || !savedToken) return
     setPlayer(savedPlayer)
     setToken(savedToken)
-    fetch(`${API}/resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ player: savedPlayer, token: savedToken }),
-    }).catch(() => {})
+    // fetch(`${API}/resume`, {
+    //   method: 'POST',
+    //   headers: { 'Content-Type': 'application/json' },
+    //   body: JSON.stringify({ player: savedPlayer, token: savedToken }),
+    // }).catch(() => {})
   }, [loading])
 
  useEffect(() => {

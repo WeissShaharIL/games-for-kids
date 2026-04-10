@@ -6,11 +6,11 @@ import online as registry
 
 router = APIRouter()
 
-GAME_NAME = "Snake Race 🐍"
-ROWS      = 20
-COLS      = 20
-TICK_RATE = 0.16  # slower than before (was 0.12)
-MAX_APPLES = 2    # always 2 apples on screen
+GAME_NAME  = "Snake Race 🐍"
+ROWS       = 20
+COLS       = 20
+TICK_RATE  = 0.16
+MAX_APPLES = 3
 
 DIRS = {
     "UP":    (-1,  0),
@@ -27,15 +27,18 @@ STARTS = [
     {"body": [(16, 10), (17, 10), (18, 10)], "dir": "UP"},
 ]
 
+
 class SnakeGame:
     def __init__(self):
         self.connections: dict[str, WebSocket] = {}
         self.scores:      dict[str, int] = {}
-        self.loop_task   = None
-        self.snakes      = {}
-        self.apples      = []   # list of (row, col)
-        self.winner      = None
-        self.countdown   = None
+        self.loop_task    = None
+        self.snakes       = {}
+        self.apples       = []
+        self.winner       = None
+        self.countdown    = None
+        self.phase        = "lobby"   # lobby | countdown | playing | result
+        self.host         = None
 
     def _reset_board(self):
         players = list(self.connections.keys())
@@ -49,14 +52,14 @@ class SnakeGame:
             }
         self.apples  = []
         self._fill_apples()
-        self.winner  = None
+        self.winner   = None
         self.countdown = None
 
     def _all_occupied(self):
         occupied = set()
         for s in self.snakes.values():
             occupied.update(map(tuple, s["body"]))
-        occupied.update(self.apples)
+        occupied.update(map(tuple, self.apples))
         return occupied
 
     def _spawn_apple(self):
@@ -107,7 +110,7 @@ class SnakeGame:
             else:
                 snake["body"].pop()
 
-        # Collision detection
+        # Self + other collision
         all_bodies = {p: set(map(tuple, s["body"])) for p, s in self.snakes.items() if s["alive"]}
         for player, snake in self.snakes.items():
             if not snake["alive"]:
@@ -141,12 +144,14 @@ class SnakeGame:
     def state(self) -> dict:
         return {
             "type":      "state",
+            "phase":     self.phase,
             "snakes":    {p: {"body": s["body"], "dir": s["dir"], "alive": s["alive"]} for p, s in self.snakes.items()},
             "apples":    self.apples,
             "winner":    self.winner,
             "scores":    self.scores,
             "connected": list(self.connections.keys()),
             "countdown": self.countdown,
+            "host":      self.host,
             "rows":      ROWS,
             "cols":      COLS,
         }
@@ -172,9 +177,12 @@ async def broadcast(message: dict):
 
 
 async def game_loop():
+    game.phase = "countdown"
     for n in [3, 2, 1]:
         if len(game.connections) < 2:
+            game.phase = "lobby"
             game.countdown = None
+            await broadcast(game.state())
             return
         game.countdown = n
         await broadcast(game.state())
@@ -184,56 +192,88 @@ async def game_loop():
     await broadcast(game.state())
     await asyncio.sleep(0.1)
     game.countdown = None
+    game.phase = "playing"
 
     while True:
         await asyncio.sleep(TICK_RATE)
         if len(game.connections) < 2:
+            game.phase = "lobby"
             game._reset_board()
             await broadcast(game.state())
             return
         running = game.tick()
         await broadcast(game.state())
         if not running:
-            await asyncio.sleep(2.0)
-            if len(game.connections) == 2:
-                game._reset_board()
-                await broadcast(game.state())
-                game.loop_task = asyncio.create_task(game_loop())
+            game.phase = "result"
+            await broadcast(game.state())
             return
 
 
 @router.websocket("/ws/{player}")
 async def snake_ws(websocket: WebSocket, player: str):
     await websocket.accept()
-    game.stop_loop()
     game.connections[player] = websocket
     game.scores.setdefault(player, 0)
     registry.set_game(player, GAME_NAME)
+
+    # Assign host
+    if game.host is None or game.host not in game.connections:
+        game.host = player
+
+    # If joining mid-game, just add them to lobby for next round
+    if game.phase in ("result",):
+        game.phase = "lobby"
+        game.stop_loop()
+
     game._reset_board()
     await broadcast(game.state())
-
-    if len(game.connections) == 2:
-        for p in game.connections:
-            registry.clear_game(p)
-        game.loop_task = asyncio.create_task(game_loop())
 
     try:
         while True:
             raw  = await websocket.receive_text()
             data = json.loads(raw)
-            if data.get("type") == "dir":
+
+            if data.get("type") == "dir" and game.phase == "playing":
                 game.set_dir(player, data.get("dir", "").upper())
-            elif data.get("type") == "reset":
-                game.stop_loop()
-                game._reset_board()
-                if len(game.connections) == 2:
+
+            elif data.get("type") == "start" and player == game.host and game.phase == "lobby":
+                if len(game.connections) >= 2:
+                    for p in game.connections:
+                        registry.clear_game(p)
+                    game._reset_board()
+                    game.stop_loop()
                     game.loop_task = asyncio.create_task(game_loop())
+
+            elif data.get("type") == "reset" and player == game.host:
+                game.stop_loop()
+                game.phase = "lobby"
+                game._reset_board()
                 await broadcast(game.state())
+
     except WebSocketDisconnect:
         game.connections.pop(player, None)
         registry.clear_game(player)
-        game.stop_loop()
+
+        # Reassign host if needed
+        if game.host == player:
+            game.host = next(iter(game.connections), None)
+
         if len(game.connections) == 0:
             game.scores = {}
+            game.stop_loop()
+            game.phase = "lobby"
+        elif game.phase == "playing":
+            # Only 1 left — they win
+            alive = [p for p, s in game.snakes.items() if s["alive"] and p in game.connections]
+            if len(alive) == 1:
+                game.winner = alive[0]
+                game.scores[alive[0]] = game.scores.get(alive[0], 0) + 1
+                game.phase = "result"
+                game.stop_loop()
+        elif game.phase in ("lobby", "countdown"):
+            game.stop_loop()
+            game.phase = "lobby"
+            game._reset_board()
+
         game._reset_board()
         await broadcast({**game.state(), "message": f"{player} disconnected."})
