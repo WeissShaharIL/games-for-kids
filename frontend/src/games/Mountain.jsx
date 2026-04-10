@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
-import { getPlayer } from '../PlayerUtils'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/mountain/ws`
