@@ -11,7 +11,7 @@ import Mountain  from './games/Mountain'
 import WordQuiz from './games/WordQuiz'
 import TugOfWar from './games/TugOfWar'
 import ChefShowdown from './games/ChefShowdown'
-import MuteButton from './MuteButton'
+
 
 
 const API = '/api'
@@ -279,7 +279,7 @@ export default function App() {
         const GameComponent = game.component
         return <GameComponent player={player} players={players} onBack={() => setGameId(null)} />
       })()}
-      <MuteButton />
+ 
     </>
   )
 }
