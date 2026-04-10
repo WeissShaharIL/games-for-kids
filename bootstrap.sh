@@ -27,7 +27,14 @@ apt-get install -y \
   curl \
   wget \
   htop \
-  ufw
+  ufw \
+  nginx \
+  certbot \
+  python3-certbot-nginx
+
+# Enable nginx on startup
+systemctl enable nginx
+systemctl start nginx
 
 # Setup firewall
 echo "🔒 Configuring firewall..."
@@ -42,6 +49,8 @@ echo ""
 echo "Docker version:         $(docker --version)"
 echo "Docker Compose version: $(docker compose version)"
 echo "Git version:            $(git --version)"
+echo "Nginx version:          $(nginx -v 2>&1)"
+echo "Certbot version:        $(certbot --version)"
 echo ""
 echo "Firewall status:"
 ufw status
