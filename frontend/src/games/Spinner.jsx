@@ -8,16 +8,6 @@ const WS_URL       = `${WS_PROTOCOL}://${location.host}/api/spinner/ws`
 const TOTAL_PIECES = 8
 const TAP_DURATION = 10
 
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
-]
-function getPlayer(players, name, idx = 0) {
-  if (players?.[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 
 const COLORS = {
   // colors resolved dynamically

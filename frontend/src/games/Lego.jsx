@@ -17,16 +17,6 @@ const STUD_R   = 6           // radius of stud
 const BOARD_COLS = 16
 const BOARD_ROWS = 16
 
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
-]
-function getPlayer(players, name, idx = 0) {
-  if (players?.[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 
 const BRICK_SIZES = [
   [1,1], [2,1], [3,1], [4,1],

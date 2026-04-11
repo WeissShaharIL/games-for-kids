@@ -7,16 +7,6 @@ const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/snake/ws`
 const CELL        = 20
 
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
-]
-function getPlayer(players, name, idx = 0) {
-  if (players?.[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 function darken(hex, amt = 40) {
   const r = Math.max(0, parseInt(hex.slice(1,3),16) - amt)
   const g = Math.max(0, parseInt(hex.slice(3,5),16) - amt)

@@ -6,18 +6,6 @@ import { playSound } from '../sounds'
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = `${WS_PROTOCOL}://${location.host}/api/splendor/ws`
 
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', emoji: '🌸' },
-  { color: '#7c3aed', light: '#ede9fe', emoji: '🧔' },
-  { color: '#0891b2', light: '#cffafe', emoji: '👩' },
-]
-function getPlayer(players, name, idx = 0) {
-  if (players?.[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 
 const GEM = {
   white: { c1: '#f8fafc', c2: '#cbd5e1', c3: '#94a3b8', text: '#1e293b', name: 'Diamond'  },

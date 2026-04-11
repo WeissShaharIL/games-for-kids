@@ -1,21 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/tictactoe/ws`
 
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
-]
-
-function safePlayer(players, name, idx = 0) {
-  if (players && name && players[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 
 export default function TicTacToe({ player, players, onBack }) {
   const [state, setState]   = useState(null)
@@ -25,12 +15,12 @@ export default function TicTacToe({ player, players, onBack }) {
   const prevWinner          = useRef(null)
 
   // Always safe — never null
-  const p = safePlayer(players, player, 0)
+  const p = getPlayer(players, player, 0)
 
   // Only derive opponent from server's connected list — never guess from players map
   const bothHere    = (state?.connected?.length ?? 0) >= 2
   const other       = state?.connected?.find(n => n !== player) || null
-  const op          = other ? safePlayer(players, other, 1) : safePlayer(players, '__waiting__', 1)
+  const op          = other ? getPlayer(players, other, 1) : getPlayer(players, '__waiting__', 1)
 
   const mySymbol    = state?.symbols?.[player]    || '?'
   const otherSymbol = other ? (state?.symbols?.[other] || '?') : '?'
