@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/lego/ws`
@@ -22,7 +23,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -274,7 +275,7 @@ export default function Lego({ player, players, onBack }) {
 
   useEffect(() => { bricksRef.current = bricks }, [bricks])
 
-  const p     = safe(players, player, 0)
+  const p     = getPlayer(players, player, 0)
   const other = state?.connected?.find(n => n !== player) || null
 
   // ── Compute canvas origin (center-top of board) ───────────────────────────

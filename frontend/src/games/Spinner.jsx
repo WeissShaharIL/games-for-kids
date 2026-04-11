@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL  = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL       = `${WS_PROTOCOL}://${location.host}/api/spinner/ws`
@@ -13,7 +14,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -65,7 +66,7 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
       const mid   = (start + end) / 2
       const sliceDeg = (weights[i] * 360).toFixed(0)
 
-      ctx.fillStyle = safe(playersRef?.current || {}, owner, 0).color || '#94a3b8'
+      ctx.fillStyle = getPlayer(playersRef?.current || {}, owner, 0).color || '#94a3b8'
       ctx.beginPath()
       ctx.moveTo(cx, cy)
       ctx.arc(cx, cy, r, start, end)
@@ -85,7 +86,7 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
       if (owner) {
         // Owner emoji + weight %
         ctx.font = `${size < 300 ? 14 : 18}px sans-serif`
-        ctx.fillText(safe(playersRef?.current || {}, owner, 0).emoji || '🎮', r * 0.6, -4)
+        ctx.fillText(getPlayer(playersRef?.current || {}, owner, 0).emoji || '🎮', r * 0.6, -4)
         ctx.fillStyle = '#fff'
         ctx.font = `bold ${size < 300 ? 9 : 11}px Nunito, sans-serif`
         ctx.fillText(`${sliceDeg}°`, r * 0.6, 10)
@@ -205,9 +206,9 @@ function Wheel({ pieces, weights, player, phase, spinAngle, onClaim, onSpinEnd }
 
 // ── Tap Battle ────────────────────────────────────────────────────────────────
 function TapBattle({ state, player, onTap, tapRemaining }) {
-  const p       = safe(players, player, 0)
+  const p       = getPlayer(players, player, 0)
   const other   = state?.connected?.find(n => n !== player) || null
-  const op      = other ? safe(players, other, 1) : null
+  const op      = other ? getPlayer(players, other, 1) : null
   const myTaps  = state?.taps?.[player] ?? 0
   const oppTaps = state?.taps?.[other]  ?? 0
   const total   = myTaps + oppTaps
@@ -262,9 +263,9 @@ export default function Spinner({ player, players, onBack }) {
   const wsRef                     = useRef(null)
   const prevPhase                 = useRef(null)
 
-  const p     = safe(players, player, 0)
+  const p     = getPlayer(players, player, 0)
   const other = state?.connected?.find(n => n !== player) || null
-  const op    = other ? safe(players, other, 1) : null
+  const op    = other ? getPlayer(players, other, 1) : null
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -338,7 +339,7 @@ export default function Spinner({ player, players, onBack }) {
     vibrate(VIBRATIONS.win)
     const winnerOwner = state?.pieces?.[state?.spin_result]
     if (winnerOwner) {
-      setStatus(`${safe(players, winnerOwner, 0).emoji} ${winnerOwner} wins!`)
+      setStatus(`${getPlayer(players, winnerOwner, 0).emoji} ${winnerOwner} wins!`)
     }
   }
 
@@ -349,7 +350,7 @@ export default function Spinner({ player, players, onBack }) {
   const winnerOwner = spinDone && phase === 'result' && state?.spin_result !== null
     ? pieces[state.spin_result]
     : null
-  const winnerPlayer = winnerOwner ? safe(players, winnerOwner, 0) : null
+  const winnerPlayer = winnerOwner ? getPlayer(players, winnerOwner, 0) : null
 
   return (
     <div style={{ ...s.wrap, background: p.bg }}>
@@ -379,16 +380,16 @@ export default function Spinner({ player, players, onBack }) {
       )}
 
       {bothHere && phase === 'picking' && state?.tap_winner && (
-        <div style={{ padding: '8px 20px', borderRadius: 12, fontWeight: 800, fontSize: 13, background: safe(players, state.tap_winner, 0).light, color: safe(players, state.tap_winner, 0).color, textAlign: 'center' }}>
-          {safe(players, state.tap_winner, 0).emoji} {state.tap_winner} won! ({state.taps?.[state.tap_winner]} vs {state.taps?.[state?.connected?.find(n => n !== state.tap_winner)]} taps) — picks first
+        <div style={{ padding: '8px 20px', borderRadius: 12, fontWeight: 800, fontSize: 13, background: getPlayer(players, state.tap_winner, 0).light, color: getPlayer(players, state.tap_winner, 0).color, textAlign: 'center' }}>
+          {getPlayer(players, state.tap_winner, 0).emoji} {state.tap_winner} won! ({state.taps?.[state.tap_winner]} vs {state.taps?.[state?.connected?.find(n => n !== state.tap_winner)]} taps) — picks first
         </div>
       )}
 
       {bothHere && phase === 'picking' && (
         <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>
-          <span style={{ color: safe(players, (state?.connected||[])[0], 0).color }}>{safe(players, (state?.connected||[])[0], 0).emoji} {pieces.filter(p => p === (state?.connected||[])[0]).length}</span>
+          <span style={{ color: getPlayer(players, (state?.connected||[])[0], 0).color }}>{getPlayer(players, (state?.connected||[])[0], 0).emoji} {pieces.filter(p => p === (state?.connected||[])[0]).length}</span>
           {' / '}
-          <span style={{ color: safe(players, (state?.connected||[])[1], 1).color }}>{pieces.filter(p => p === (state?.connected||[])[1]).length} {safe(players, (state?.connected||[])[1], 1).emoji}</span>
+          <span style={{ color: getPlayer(players, (state?.connected||[])[1], 1).color }}>{pieces.filter(p => p === (state?.connected||[])[1]).length} {getPlayer(players, (state?.connected||[])[1], 1).emoji}</span>
           {' — '}{TOTAL_PIECES - (state?.current_pick || 0)} left
         </div>
       )}

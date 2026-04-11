@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = `${WS_PROTOCOL}://${location.host}/api/chefshowdown/ws`
@@ -13,7 +14,7 @@ const FALLBACKS = [
   { color: '#7c3aed', light: '#ede9fe', bg: '#faf5ff', emoji: '🧔' },
   { color: '#0891b2', light: '#cffafe', bg: '#ecfeff', emoji: '👩' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -26,7 +27,7 @@ const JUDGES = [
 
 // ── Lobby ──────────────────────────────────────────────────────────────────
 function Lobby({ player, players, connected, host, onStart }) {
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
   const isHost = player === host
   const canStart = connected.length >= 2
 
@@ -41,7 +42,7 @@ function Lobby({ player, players, connected, host, onStart }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24, width: '100%' }}>
           {connected.map((name, i) => {
-            const pp = safe(players, name, i)
+            const pp = getPlayer(players, name, i)
             return (
               <div key={name} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
@@ -142,7 +143,7 @@ function Announcing({ dish, announceStep, judges }) {
 
 // ── Ready ─────────────────────────────────────────────────────────────────
 function Ready({ player, players, dish, connected, readyPlayers, onReady }) {
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
   const iAmReady = readyPlayers.includes(player)
 
   return (
@@ -157,7 +158,7 @@ function Ready({ player, players, dish, connected, readyPlayers, onReady }) {
         {/* Who's ready */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 32 }}>
           {connected.map((name, i) => {
-            const pp = safe(players, name, i)
+            const pp = getPlayer(players, name, i)
             const isReady = readyPlayers.includes(name)
             return (
               <div key={name} style={{
@@ -195,7 +196,7 @@ function Ready({ player, players, dish, connected, readyPlayers, onReady }) {
 
 // ── Cooking ───────────────────────────────────────────────────────────────
 function Cooking({ player, players, dish, timeLeft, onSubmit, submitted }) {
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
   const [selected, setSelected] = useState([])
 
   const toggle = (ing) => {
@@ -413,7 +414,7 @@ function Judging({ scores, connected, players }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 400 }}>
         {connected.map((name, i) => {
-          const p = safe(players, name, i)
+          const p = getPlayer(players, name, i)
           const s = scores[name]
           return (
             <div key={name} style={{
@@ -458,7 +459,7 @@ function Podium({ scores, connected, players, player, onRestart, onBack, isHost 
       {/* Podium rankings */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 420, marginBottom: 32 }}>
         {sorted.map((name, rank) => {
-          const p = safe(players, name, connected.indexOf(name))
+          const p = getPlayer(players, name, connected.indexOf(name))
           const s = scores[name]
           const isMe = name === player
           return (

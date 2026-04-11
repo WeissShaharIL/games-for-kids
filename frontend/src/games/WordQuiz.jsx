@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/wordquiz/ws`
@@ -11,7 +12,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -50,7 +51,7 @@ export default function WordQuiz({ player, players, onBack }) {
   const prevWord       = useRef(null)
   const prevResult     = useRef(null)
 
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
 
   const flushOutbox = (ws) => {
     while (outboxRef.current.length > 0 && ws.readyState === WebSocket.OPEN) {
@@ -202,7 +203,7 @@ export default function WordQuiz({ player, players, onBack }) {
 
       <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center', marginBottom:24 }}>
         {connected.map((name, i) => {
-          const pi = safe(players, name, i)
+          const pi = getPlayer(players, name, i)
           return (
             <div key={name} style={{ display:'flex', alignItems:'center', gap:8, background:`${pi.color}22`, border:`2px solid ${pi.color}55`, borderRadius:20, padding:'8px 16px' }}>
               <span style={{ fontSize:18 }}>{pi.emoji}</span>
@@ -293,7 +294,7 @@ export default function WordQuiz({ player, players, onBack }) {
         <p style={{ color:'#4338ca', margin:'0 0 28px', fontSize:13 }}>{lc.emoji} {lc.label} mode • {total_rounds} rounds</p>
         <div style={{ width:'100%', maxWidth:340 }}>
           {sorted.map(([name, score], i) => {
-            const pi = safe(players, name, i)
+            const pi = getPlayer(players, name, i)
             return (
               <div key={name} style={{ display:'flex', alignItems:'center', gap:12, background:name===player?`${pi.color}22`:'rgba(255,255,255,0.05)', border:`2px solid ${name===player?pi.color:'rgba(255,255,255,0.1)'}`, borderRadius:16, padding:'12px 20px', marginBottom:10 }}>
                 <span style={{ fontSize:24 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
@@ -320,7 +321,7 @@ export default function WordQuiz({ player, players, onBack }) {
         <button type="button" onClick={onBack} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#6366f1' }}>←</button>
         <div style={{ display:'flex', gap:16 }}>
           {connected.map((name, i) => {
-            const pi = safe(players, name, i)
+            const pi = getPlayer(players, name, i)
             return (
               <div key={name} style={{ display:'flex', alignItems:'center', gap:4, background:name===player?`${pi.color}22`:'transparent', borderRadius:8, padding:'2px 8px' }}>
                 <span style={{ fontSize:15 }}>{pi.emoji}</span>

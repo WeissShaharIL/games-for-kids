@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/balloons/ws`
@@ -11,7 +12,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -41,7 +42,7 @@ export default function Balloons({ player, players, onBack }) {
   const freezeUntilRef = useRef(0)
   const freezeTimerRef = useRef(null)
 
-  const me = safe(players, player, 0)
+  const me = getPlayer(players, player, 0)
 
   useEffect(() => { stateRef.current = state }, [state])
 
@@ -352,7 +353,7 @@ export default function Balloons({ player, players, onBack }) {
       <p style={{ margin:'0 0 24px', color:'#94a3b8', fontSize:12 }}>🐦 Catch the bird to freeze your opponent!</p>
       <div style={{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', marginBottom:28 }}>
         {connected.map((name, i) => {
-          const pi = safe(players, name, i)
+          const pi = getPlayer(players, name, i)
           return (
             <div key={name} style={{ background:pi.color, color:'#fff', borderRadius:20, padding:'8px 18px', fontWeight:'bold', fontSize:15, display:'flex', alignItems:'center', gap:6 }}>
               <span>{pi.emoji}</span><span>{name}</span>
@@ -385,7 +386,7 @@ export default function Balloons({ player, players, onBack }) {
         <h2 style={{ fontSize:28, margin:'12px 0 4px', color:'#1e293b' }}>{winner===player?'You Won!':`${winner} Wins!`}</h2>
         <div style={{ width:'100%', maxWidth:320, marginTop:20 }}>
           {scoreboard.map((name, i) => {
-            const pi = safe(players, name, i)
+            const pi = getPlayer(players, name, i)
             return (
               <div key={name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:name===player?pi.light:'#fff', border:`2px solid ${pi.color}`, borderRadius:12, padding:'10px 16px', marginBottom:8 }}>
                 <span style={{ fontSize:22 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
@@ -422,7 +423,7 @@ export default function Balloons({ player, players, onBack }) {
       {/* Header */}
       <div style={{ width:'100%', maxWidth:400, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 16px', background:'rgba(255,255,255,0.85)', borderBottom:'1px solid #e2e8f0', flexWrap:'wrap', gap:4, marginTop: isFrozen ? 44 : 0, transition:'margin-top 0.2s' }}>
         {connected.map((name, i) => {
-          const pi = safe(players, name, i)
+          const pi = getPlayer(players, name, i)
           const isMe = name === player
           return (
             <div key={name} style={{ display:'flex', alignItems:'center', gap:4, background: isMe ? pi.light : 'transparent', borderRadius:8, padding:'2px 8px', border: isMe && isFrozen ? '2px solid #3b82f6' : '2px solid transparent' }}>

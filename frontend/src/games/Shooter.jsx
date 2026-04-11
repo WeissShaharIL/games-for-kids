@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/shooter/ws`
@@ -11,7 +12,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -68,7 +69,7 @@ export default function Shooter({ player, players, onBack }) {
   const prevPhase            = useRef(null)
   const prevFigId            = useRef(null)
 
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -155,7 +156,7 @@ export default function Shooter({ player, players, onBack }) {
 
       <div style={{ display:'flex', flexWrap:'wrap', gap:10, justifyContent:'center', marginBottom:32 }}>
         {connected.map((name, i) => {
-          const pi = safe(players, name, i)
+          const pi = getPlayer(players, name, i)
           return (
             <div key={name} style={{ display:'flex', alignItems:'center', gap:8, background:`${pi.color}22`, border:`2px solid ${pi.color}55`, borderRadius:20, padding:'8px 18px' }}>
               <span style={{ fontSize:20 }}>{pi.emoji}</span>
@@ -216,7 +217,7 @@ export default function Shooter({ player, players, onBack }) {
         <p style={{ color:'#475569', margin:'0 0 28px' }}>Final scores</p>
         <div style={{ width:'100%', maxWidth:340 }}>
           {sorted.map(([name, score], i) => {
-            const pi = safe(players, name, i)
+            const pi = getPlayer(players, name, i)
             return (
               <div key={name} style={{ display:'flex', alignItems:'center', gap:12, background:name===player?`${pi.color}22`:'rgba(255,255,255,0.05)', border:`2px solid ${name===player?pi.color:'rgba(255,255,255,0.1)'}`, borderRadius:16, padding:'12px 20px', marginBottom:10 }}>
                 <span style={{ fontSize:24 }}>{i===0?'🥇':i===1?'🥈':'🥉'}</span>
@@ -244,7 +245,7 @@ export default function Shooter({ player, players, onBack }) {
         <button onClick={onBack} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'#475569' }}>←</button>
         <div style={{ display:'flex', gap:20 }}>
           {connected.map((name, i) => {
-            const pi = safe(players, name, i)
+            const pi = getPlayer(players, name, i)
             return (
               <div key={name} style={{ display:'flex', alignItems:'center', gap:5 }}>
                 <span style={{ fontSize:16 }}>{pi.emoji}</span>

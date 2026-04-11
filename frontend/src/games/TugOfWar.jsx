@@ -1,6 +1,7 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/tugofwar/ws`
@@ -14,7 +15,7 @@ const FALLBACKS = [
   { color: '#0891b2', light: '#cffafe', bg: '#ecfeff', emoji: '👩' },
 ]
 
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players && name && players[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -52,8 +53,8 @@ function RopeCanvas({ ropePos, sides, players, connected, phase, winner }) {
 
     const leftPlayers  = connected.filter(n => sides[n] === 'left')
     const rightPlayers = connected.filter(n => sides[n] === 'right')
-    const leftColor    = leftPlayers[0]  ? safe(players, leftPlayers[0],  0).color : '#94a3b8'
-    const rightColor   = rightPlayers[0] ? safe(players, rightPlayers[0], 1).color : '#94a3b8'
+    const leftColor    = leftPlayers[0]  ? getPlayer(players, leftPlayers[0],  0).color : '#94a3b8'
+    const rightColor   = rightPlayers[0] ? getPlayer(players, rightPlayers[0], 1).color : '#94a3b8'
 
     // Background halves
     ctx.fillStyle = leftColor + '18'
@@ -157,7 +158,7 @@ function RopeCanvas({ ropePos, sides, players, connected, phase, winner }) {
 
     // ── Player emojis ─────────────────────────────────────────────────────────
     leftPlayers.forEach((name, i) => {
-      const info = safe(players, name, i)
+      const info = getPlayer(players, name, i)
       ctx.font = '26px sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -165,7 +166,7 @@ function RopeCanvas({ ropePos, sides, players, connected, phase, winner }) {
       ctx.fillText(info.emoji, ex, ropeY - 32)
     })
     rightPlayers.forEach((name, i) => {
-      const info = safe(players, name, i + 1)
+      const info = getPlayer(players, name, i + 1)
       ctx.font = '26px sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -263,7 +264,7 @@ export default function TugOfWar({ player, players, onBack }) {
   const prevJoin          = useRef(null)
   const tapCooldown       = useRef(false)
 
-  const myInfo = safe(players, player, 0)
+  const myInfo = getPlayer(players, player, 0)
 
   useEffect(() => {
     mountedRef.current = true
@@ -329,8 +330,8 @@ export default function TugOfWar({ player, players, onBack }) {
   const iWon         = winner && winner !== 'draw' && winner === mySide
   const isDraw       = winner === 'draw'
 
-  const leftColor  = leftPlayers[0]  ? safe(players, leftPlayers[0],  0).color : '#94a3b8'
-  const rightColor = rightPlayers[0] ? safe(players, rightPlayers[0], 1).color : '#94a3b8'
+  const leftColor  = leftPlayers[0]  ? getPlayer(players, leftPlayers[0],  0).color : '#94a3b8'
+  const rightColor = rightPlayers[0] ? getPlayer(players, rightPlayers[0], 1).color : '#94a3b8'
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#fef3c7', paddingBottom: 32, gap: 10 }}>
@@ -398,7 +399,7 @@ export default function TugOfWar({ player, players, onBack }) {
                   <div style={{ fontWeight: 900, fontSize: 14, color: '#1e1b4b', marginTop: 4 }}>{side === 'left' ? 'Left' : 'Right'} Team</div>
                   <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', minHeight: 28 }}>
                     {sidePlayers.map((n, i) => (
-                      <span key={n} style={{ fontSize: 20 }}>{safe(players, n, si + i).emoji}</span>
+                      <span key={n} style={{ fontSize: 20 }}>{getPlayer(players, n, si + i).emoji}</span>
                     ))}
                     {sidePlayers.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>empty</span>}
                   </div>

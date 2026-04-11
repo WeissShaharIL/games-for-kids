@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/snake/ws`
@@ -12,7 +13,7 @@ const FALLBACKS = [
   { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
   { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -51,7 +52,7 @@ function DPadBtn({ label, dir, color, onPress }) {
 
 // ── Lobby ─────────────────────────────────────────────────────────────────
 function Lobby({ player, players, connected, host, onStart, onBack, scores }) {
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
   const isHost = player === host
   const canStart = connected.length >= 2
 
@@ -65,7 +66,7 @@ function Lobby({ player, players, connected, host, onStart, onBack, scores }) {
 
       <div style={{ display:'flex', flexDirection:'column', gap:8, width:'100%', maxWidth:340, marginBottom:28 }}>
         {connected.map((name, i) => {
-          const pp = safe(players, name, i)
+          const pp = getPlayer(players, name, i)
           return (
             <div key={name} style={{
               display:'flex', alignItems:'center', gap:10,
@@ -100,7 +101,7 @@ function Lobby({ player, players, connected, host, onStart, onBack, scores }) {
         </button>
       ) : (
         <div style={{ color:'#475569', fontWeight:700, fontSize:14, textAlign:'center' }}>
-          ⏳ Waiting for <span style={{ color:safe(players, host, 0).color }}>{host}</span> to start...
+          ⏳ Waiting for <span style={{ color:getPlayer(players, host, 0).color }}>{host}</span> to start...
         </div>
       )}
     </div>
@@ -124,7 +125,7 @@ export default function Snake({ player, players, onBack }) {
   useEffect(() => { stateRef.current = state }, [state])
   useEffect(() => { playersRef.current = players }, [players])
 
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
 
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
@@ -223,7 +224,7 @@ export default function Snake({ player, players, onBack }) {
           ctx.fillRect(c*CELL, r*CELL, CELL, CELL)
         }
 
-      const myP = safe(pl, player, 0)
+      const myP = getPlayer(pl, player, 0)
       ctx.strokeStyle = myP.color + '44'
       ctx.lineWidth = 2
       ctx.strokeRect(1, 1, W-2, H-2)
@@ -254,7 +255,7 @@ export default function Snake({ player, players, onBack }) {
       if (s.snakes) {
         Object.entries(s.snakes).forEach(([name, snake]) => {
           if (!snake.body?.length) return
-          const pi = safe(pl, name, connected.indexOf(name))
+          const pi = getPlayer(pl, name, connected.indexOf(name))
           if (!snake.alive) ctx.globalAlpha = 0.25
           snake.body.forEach((seg, i) => drawSegment(seg[1], seg[0], pi.color, i === 0, snake.dir))
           ctx.globalAlpha = 1
@@ -391,7 +392,7 @@ export default function Snake({ player, players, onBack }) {
       {/* Scores — all players */}
       <div style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 12px', width:'100%', maxWidth:440, flexWrap:'wrap', justifyContent:'center' }}>
         {connected.map((name, i) => {
-          const pp = safe(players, name, i)
+          const pp = getPlayer(players, name, i)
           const isMe = name === player
           const alive = state?.snakes?.[name]?.alive !== false
           return (
@@ -427,7 +428,7 @@ export default function Snake({ player, players, onBack }) {
       )}
       {phase === 'result' && !isHost && (
         <div style={{ marginTop:14, color:'#475569', fontWeight:700, fontSize:14 }}>
-          Waiting for {safe(players, host, 0).emoji} {host} to start next round...
+          Waiting for {getPlayer(players, host, 0).emoji} {host} to start next round...
         </div>
       )}
 

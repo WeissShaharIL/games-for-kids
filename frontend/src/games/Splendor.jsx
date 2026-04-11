@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 import { playSound } from '../sounds'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -13,7 +14,7 @@ const FALLBACKS = [
   { color: '#7c3aed', light: '#ede9fe', emoji: '🧔' },
   { color: '#0891b2', light: '#cffafe', emoji: '👩' },
 ]
-function safe(players, name, idx = 0) {
+function getPlayer(players, name, idx = 0) {
   if (players?.[name]) return players[name]
   return FALLBACKS[idx % FALLBACKS.length]
 }
@@ -217,7 +218,7 @@ function Noble({ noble, size=72 }) {
 
 // ── Lobby ─────────────────────────────────────────────────────────────────────
 function Lobby({ player, players, connected, host, onStart, onBack }) {
-  const p = safe(players, player, 0)
+  const p = getPlayer(players, player, 0)
   const isHost = player===host, canStart = connected.length>=2
   const [tick, setTick] = useState(0)
   useEffect(()=>{ const t=setInterval(()=>setTick(n=>n+1),800); return()=>clearInterval(t) },[])
@@ -265,7 +266,7 @@ function Lobby({ player, players, connected, host, onStart, onBack }) {
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:10, width:'100%', maxWidth:340, marginBottom:28, zIndex:1 }}>
         {connected.map((name,i)=>{
-          const pp=safe(players,name,i)
+          const pp=getPlayer(players,name,i)
           return (
             <div key={name} style={{
               display:'flex', alignItems:'center', gap:12,
@@ -331,7 +332,7 @@ function Result({ state, player, players, onRestart, onBack, isHost }) {
       <p style={{ color:'#6ee7b7', fontSize:13, marginBottom:36, letterSpacing:2 }}>{state.winner} claims the Renaissance!</p>
       <div style={{ display:'flex', flexDirection:'column', gap:10, width:'100%', maxWidth:400, marginBottom:36 }}>
         {sorted.map((name,rank)=>{
-          const pp=safe(players,name,(state.players||[]).indexOf(name))
+          const pp=getPlayer(players,name,(state.players||[]).indexOf(name))
           const h=state.hands[name], isMe=name===player
           return (
             <div key={name} style={{
@@ -596,7 +597,7 @@ function ActionOverlay({ action, players }) {
   }, [])
 
   if (!action) return null
-  const pp = safe(players, action.player, 0)
+  const pp = getPlayer(players, action.player, 0)
 
   const cardBg = action.card ? BONUS_COLOR[action.card.bonus] : null
 
@@ -825,7 +826,7 @@ function GameBoard({ state, player, players, onAction, onBack }) {
         borderBottom:'1px solid #0e1f0e',
       }}>
         {(state.players||[]).filter(n=>n!==player).map(name=>{
-          const pp=safe(players,name,(state.players||[]).indexOf(name))
+          const pp=getPlayer(players,name,(state.players||[]).indexOf(name))
           const h=state.hands?.[name]||{}, cur=state.current===name
           const bonus=h.bonus||{}, handGems=h.gems||{}
           const reservedCount=h.reserved?.length||0
