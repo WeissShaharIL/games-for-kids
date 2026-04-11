@@ -25,7 +25,7 @@ export default function AirHockey({ player, players, onBack }) {
 
   useEffect(() => { stateRef.current = state }, [state])
 
-  const { send } = useGameWS(WS_URL, player,
+  const { send, mountedRef } = useGameWS(WS_URL, player,
     (data) => {
       setState(data)
       if (data.last_goal && data.last_goal !== prevGoal.current) {
