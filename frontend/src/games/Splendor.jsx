@@ -370,14 +370,164 @@ function Result({ state, player, players, onRestart, onBack, isHost }) {
   )
 }
 
+// ── Action Overlay — shown to all players on any action ───────────────────────
+function ActionOverlay({ action, players }) {
+  const [phase, setPhase] = useState('enter') // enter → hold → exit
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase('hold'), 400)
+    const t2 = setTimeout(() => setPhase('exit'), 2800)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [])
+
+  if (!action) return null
+  const pp = safe(players, action.player, 0)
+
+  const cardBg = action.card ? BONUS_COLOR[action.card.bonus] : null
+
+  const style = {
+    position: 'fixed', inset: 0, zIndex: 300,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    pointerEvents: 'none',
+    transition: 'opacity 0.4s ease',
+    opacity: phase === 'exit' ? 0 : 1,
+  }
+
+  if (action.type === 'buy_card' || action.type === 'reserve_card') {
+    const isBuy = action.type === 'buy_card'
+    return (
+      <div style={style}>
+        {/* Dark backdrop */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'rgba(0,0,0,0.55)',
+          backdropFilter: 'blur(2px)',
+        }}/>
+        {/* Card flying animation */}
+        <div style={{
+          position: 'relative', zIndex: 1,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+          animation: phase === 'enter'
+            ? 'cardFlyIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards'
+            : phase === 'exit'
+            ? 'cardFlyOut 0.4s ease-in forwards'
+            : 'cardFloat 1s ease-in-out infinite alternate',
+        }}>
+          {/* The card */}
+          {action.card && (
+            <div style={{
+              width: 100, height: 140,
+              borderRadius: 10, overflow: 'hidden',
+              border: `3px solid ${isBuy ? '#fbbf24' : '#6ee7b7'}`,
+              boxShadow: `0 0 40px ${isBuy ? 'rgba(251,191,36,0.6)' : 'rgba(110,231,183,0.5)'}`,
+            }}>
+              <img
+                src={`/cards/${action.card.bonus}_${action.card.tier}.jpg`}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)',
+              }}/>
+            </div>
+          )}
+          {/* Player + action label */}
+          <div style={{
+            background: 'rgba(0,0,0,0.85)', borderRadius: 12,
+            padding: '10px 20px', textAlign: 'center',
+            border: `1px solid ${pp.color}44`,
+          }}>
+            <div style={{ fontSize: 24, marginBottom: 4 }}>{pp.emoji}</div>
+            <div style={{ color: pp.color, fontWeight: 900, fontSize: 16 }}>{action.player}</div>
+            <div style={{
+              color: isBuy ? '#fbbf24' : '#6ee7b7',
+              fontSize: 13, fontWeight: 700, marginTop: 2, letterSpacing: 1,
+            }}>
+              {isBuy ? '💎 Bought a card!' : '📋 Reserved a card!'}
+            </div>
+            {action.card && (
+              <div style={{
+                marginTop: 6, display: 'inline-block',
+                background: BONUS_COLOR[action.card.bonus],
+                borderRadius: 6, padding: '2px 10px',
+                fontSize: 11, fontWeight: 700,
+                color: action.card.bonus === 'white' ? '#1e293b' : '#fff',
+              }}>
+                Tier {action.card.tier} {action.card.bonus}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (action.type === 'take_gems') {
+    const gemList = Object.entries(action.gems || {}).flatMap(([g,n]) => Array(n).fill(g))
+    return (
+      <div style={style}>
+        <div style={{
+          position: 'relative', zIndex: 1,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+          animation: phase === 'enter' ? 'cardFlyIn 0.3s ease forwards' : phase === 'exit' ? 'cardFlyOut 0.3s ease-in forwards' : 'none',
+        }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {gemList.map((g, i) => (
+              <div key={i} style={{
+                animation: `gemBounce 0.4s ${i * 0.1}s cubic-bezier(0.34,1.56,0.64,1) both`,
+              }}>
+                <GemChip3D gem={g} count={0} size={52} showZero/>
+              </div>
+            ))}
+          </div>
+          <div style={{
+            background: 'rgba(0,0,0,0.85)', borderRadius: 10,
+            padding: '8px 18px', textAlign: 'center',
+            border: `1px solid ${pp.color}44`,
+          }}>
+            <span style={{ fontSize: 18 }}>{pp.emoji}</span>
+            {' '}
+            <span style={{ color: pp.color, fontWeight: 700 }}>{action.player}</span>
+            {' '}
+            <span style={{ color: '#94a3b8', fontSize: 13 }}>took {gemList.length} gem{gemList.length > 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return null
+}
+
 // ── Game Board ────────────────────────────────────────────────────────────────
 function GameBoard({ state, player, players, onAction, onBack }) {
   const [selectedGems, setSelectedGems] = useState({})
   const [selectedCard, setSelectedCard] = useState(null)
   const [error, setError] = useState('')
+  const [animKey, setAnimKey] = useState(null)
+  const [animAction, setAnimAction] = useState(null)
+  const prevActionRef = useRef(null)
+
   const myHand=state.hands?.[player]||{}, myBonus=myHand.bonus||{}
   const isMyTurn=state.current===player
   const gems=['white','blue','green','red','black']
+
+  // Trigger animation whenever last_action changes
+  useEffect(() => {
+    const a = state.last_action
+    if (!a) return
+    const key = JSON.stringify(a)
+    if (key === prevActionRef.current) return
+    prevActionRef.current = key
+
+    // Play sound
+    if (a.type === 'buy_card') playSound('collect')
+    else if (a.type === 'reserve_card') playSound('select')
+    else if (a.type === 'take_gems') playSound('pop')
+
+    setAnimAction(a)
+    setAnimKey(key)
+    setTimeout(() => setAnimKey(null), 3200)
+  }, [state.last_action])
 
   const showError=msg=>{setError(msg);setTimeout(()=>setError(''),2500)}
   const clearSel=()=>{setSelectedGems({});setSelectedCard(null)}
@@ -408,6 +558,7 @@ function GameBoard({ state, player, players, onAction, onBack }) {
 
   // Use CSS viewport units so everything fits without scrolling
   // Layout: top bar (36px) + opponents (40px) + nobles+board+bank (flex fill) + bottom hand (fixed ~110px)
+
   const CARD_W = 62
   const CARD_H = 88
   const DECK_W = 38
@@ -629,6 +780,28 @@ function GameBoard({ state, player, players, onAction, onBack }) {
         fontSize:13, fontWeight:700, zIndex:200, border:'1px solid #dc262688',
         boxShadow:'0 8px 32px rgba(220,38,38,0.4)', whiteSpace:'nowrap',
       }}>{error}</div>}
+
+      {/* Action overlay — shown to all players */}
+      {animKey && <ActionOverlay key={animKey} action={animAction} players={players}/>}
+
+      <style>{`
+        @keyframes cardFlyIn {
+          from { transform: scale(0.4) translateY(60px); opacity: 0; }
+          to   { transform: scale(1) translateY(0);      opacity: 1; }
+        }
+        @keyframes cardFlyOut {
+          from { transform: scale(1) translateY(0);       opacity: 1; }
+          to   { transform: scale(0.6) translateY(-40px); opacity: 0; }
+        }
+        @keyframes cardFloat {
+          from { transform: translateY(0px); }
+          to   { transform: translateY(-6px); }
+        }
+        @keyframes gemBounce {
+          from { transform: scale(0) translateY(20px); opacity: 0; }
+          to   { transform: scale(1) translateY(0);    opacity: 1; }
+        }
+      `}</style>
     </div>
   )
 }

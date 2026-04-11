@@ -390,7 +390,7 @@ class SplendorGame:
             self.final_round = True
             self.final_round_trigger = player
 
-    def state(self, viewer=None) -> dict:
+    def state(self, viewer=None, last_action=None) -> dict:
         hands_view = {}
         for p, h in self.hands.items():
             hands_view[p] = {
@@ -416,17 +416,18 @@ class SplendorGame:
             "winner":       self.winner,
             "final_round":  self.final_round,
             "final_trigger": self.final_round_trigger,
+            "last_action":  last_action,
         }
 
 
 game = SplendorGame()
 
 
-async def broadcast(viewer=None):
+async def broadcast(last_action=None):
     dead = []
     for name, ws in game.connections.items():
         try:
-            await ws.send_text(json.dumps(game.state(viewer=name)))
+            await ws.send_text(json.dumps(game.state(viewer=name, last_action=last_action)))
         except Exception:
             dead.append(name)
     for p in dead:
@@ -468,24 +469,56 @@ async def splendor_ws(websocket: WebSocket, player: str):
                 if err != "ok":
                     await websocket.send_text(json.dumps({"error": err}))
                 else:
-                    await broadcast()
+                    await broadcast(last_action={
+                        "type": "take_gems",
+                        "player": player,
+                        "gems": gems,
+                    })
 
             elif t == "buy_card" and game.phase == "playing":
-                err = game.action_buy_card(
-                    player, data["card_id"],
-                    from_reserve=data.get("from_reserve", False)
-                )
+                card_id = data["card_id"]
+                from_reserve = data.get("from_reserve", False)
+                # find card before buying for animation info
+                card_info = None
+                for tier in [1,2,3]:
+                    for c in game.board[tier]:
+                        if c["id"] == card_id:
+                            card_info = {"id": c["id"], "bonus": c["bonus"], "tier": c["tier"]}
+                            break
+                if not card_info:
+                    for c in game.hands.get(player, {}).get("reserved", []):
+                        if c["id"] == card_id:
+                            card_info = {"id": c["id"], "bonus": c["bonus"], "tier": c["tier"]}
+                            break
+                err = game.action_buy_card(player, card_id, from_reserve=from_reserve)
                 if err != "ok":
                     await websocket.send_text(json.dumps({"error": err}))
                 else:
-                    await broadcast()
+                    await broadcast(last_action={
+                        "type": "buy_card",
+                        "player": player,
+                        "card": card_info,
+                        "from_reserve": from_reserve,
+                    })
 
             elif t == "reserve_card" and game.phase == "playing":
-                err = game.action_reserve_card(player, data["card_id"])
+                card_id = data["card_id"]
+                # find card info before reserving
+                card_info = None
+                for tier in [1,2,3]:
+                    for c in game.board[tier]:
+                        if c["id"] == card_id:
+                            card_info = {"id": c["id"], "bonus": c["bonus"], "tier": c["tier"]}
+                            break
+                err = game.action_reserve_card(player, card_id)
                 if err != "ok":
                     await websocket.send_text(json.dumps({"error": err}))
                 else:
-                    await broadcast()
+                    await broadcast(last_action={
+                        "type": "reserve_card",
+                        "player": player,
+                        "card": card_info,
+                    })
 
             elif t == "restart" and player == game.host:
                 game.phase    = "lobby"
