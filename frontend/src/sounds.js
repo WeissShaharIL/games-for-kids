@@ -1,5 +1,5 @@
-// sounds.js - High quality synthesized sound effects
-// Uses layered oscillators, filters, envelopes and reverb for rich sounds
+// sounds.js - Synthesized sound effects using Web Audio API
+// No external files needed.
 
 let ctx = null
 
@@ -8,213 +8,151 @@ function getCtx() {
   return ctx
 }
 
-// ── Core utilities ────────────────────────────────────────────────────────────
-
-function createReverb(ac, seconds = 1.5) {
-  const conv = ac.createConvolver()
-  const len  = ac.sampleRate * seconds
-  const buf  = ac.createBuffer(2, len, ac.sampleRate)
-  for (let c = 0; c < 2; c++) {
-    const ch = buf.getChannelData(c)
-    for (let i = 0; i < len; i++) {
-      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5)
-    }
-  }
-  conv.buffer = buf
-  return conv
+function note(freq, startTime, duration, type = 'sine', gainVal = 0.3) {
+  const ac  = getCtx()
+  const osc = ac.createOscillator()
+  const env = ac.createGain()
+  osc.connect(env)
+  env.connect(ac.destination)
+  osc.type = type
+  osc.frequency.setValueAtTime(freq, startTime)
+  env.gain.setValueAtTime(0, startTime)
+  env.gain.linearRampToValueAtTime(gainVal, startTime + 0.01)
+  env.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
+  osc.start(startTime)
+  osc.stop(startTime + duration + 0.05)
 }
-
-function osc(ac, type, freq, when, duration, vol, dest, detune = 0) {
-  const o = ac.createOscillator()
-  const g = ac.createGain()
-  o.type            = type
-  o.frequency.value = freq
-  if (detune) o.detune.value = detune
-  g.gain.setValueAtTime(0, when)
-  g.gain.linearRampToValueAtTime(vol, when + 0.015)
-  g.gain.exponentialRampToValueAtTime(0.001, when + duration)
-  o.connect(g); g.connect(dest)
-  o.start(when); o.stop(when + duration + 0.05)
-  return { o, g }
-}
-
-function envelope(gainNode, ac, when, attack, sustain, vol, release) {
-  gainNode.gain.setValueAtTime(0, when)
-  gainNode.gain.linearRampToValueAtTime(vol, when + attack)
-  gainNode.gain.setValueAtTime(vol, when + attack + sustain)
-  gainNode.gain.exponentialRampToValueAtTime(0.001, when + attack + sustain + release)
-}
-
-// ── Sound definitions ─────────────────────────────────────────────────────────
 
 const SOUNDS = {
-
-  // Soft "place" — warm marimba-like thud
+  // Soft pop when placing a piece
   place: () => {
-    const ac  = getCtx()
-    const t   = ac.currentTime
-    const out = ac.destination
-
-    // Main tone — warm sine
-    osc(ac, 'sine', 440, t, 0.4, 0.35, out)
-    // Harmonic — slightly detuned
-    osc(ac, 'sine', 441.5, t, 0.35, 0.12, out)
-    // 2nd harmonic — octave up, soft
-    osc(ac, 'sine', 880, t, 0.25, 0.06, out)
-    // Low thump
-    const lfo = ac.createOscillator()
-    const lg  = ac.createGain()
-    lfo.type = 'sine'
-    lfo.frequency.setValueAtTime(120, t)
-    lfo.frequency.exponentialRampToValueAtTime(60, t + 0.12)
-    lg.gain.setValueAtTime(0, t)
-    lg.gain.linearRampToValueAtTime(0.4, t + 0.01)
-    lg.gain.exponentialRampToValueAtTime(0.001, t + 0.18)
-    lfo.connect(lg); lg.connect(out)
-    lfo.start(t); lfo.stop(t + 0.2)
+    const ac = getCtx(), t = ac.currentTime
+    note(520, t,        0.06, 'sine', 0.2)
+    note(700, t + 0.04, 0.05, 'sine', 0.1)
   },
 
-  // Win — bright ascending chime cascade
+  // Happy fanfare for winning
   win: () => {
-    const ac  = getCtx()
-    const t   = ac.currentTime
-    const rev = createReverb(ac, 2)
-    rev.connect(ac.destination)
-
-    const melody = [523.25, 659.25, 783.99, 1046.50, 1318.51]
-    melody.forEach((freq, i) => {
-      const when = t + i * 0.11
-      osc(ac, 'sine',     freq,       when, 0.7, 0.3,  rev)
-      osc(ac, 'triangle', freq * 2,   when, 0.4, 0.08, rev)
-      osc(ac, 'sine',     freq * 0.5, when, 0.5, 0.06, rev)
-    })
-
-    // Final sparkle
-    ;[2093, 2637, 3136].forEach((freq, i) => {
-      osc(ac, 'sine', freq, t + 0.65 + i * 0.08, 0.5, 0.15, rev)
-    })
+    const ac = getCtx(), t = ac.currentTime
+    ;[523, 659, 784, 1047].forEach((freq, i) => note(freq, t + i * 0.13, 0.18, 'sine', 0.3))
+    ;[1047, 1319, 1568].forEach((freq, i) => note(freq, t + 0.55 + i * 0.1, 0.12, 'triangle', 0.15))
   },
 
-  // Lose — soft descending minor chord
+  // Sad descending for losing
   lose: () => {
-    const ac  = getCtx()
-    const t   = ac.currentTime
-    const rev = createReverb(ac, 1.5)
-    rev.connect(ac.destination)
-
-    ;[392, 349.23, 311.13, 261.63].forEach((freq, i) => {
-      osc(ac, 'sine', freq, t + i * 0.14, 0.6, 0.22, rev)
-    })
-    // Low rumble
-    osc(ac, 'sine', 98, t + 0.1, 0.8, 0.18, ac.destination)
+    const ac = getCtx(), t = ac.currentTime
+    ;[392, 349, 311, 277].forEach((freq, i) => note(freq, t + i * 0.15, 0.2, 'sine', 0.25))
   },
 
-  // Draw — gentle two-tone chime
+  // Neutral double ding for draw
   draw: () => {
-    const ac  = getCtx()
-    const t   = ac.currentTime
-    const rev = createReverb(ac, 1.2)
-    rev.connect(ac.destination)
-
-    osc(ac, 'sine', 523.25, t,       0.5, 0.25, rev)
-    osc(ac, 'sine', 659.25, t + 0.18, 0.5, 0.22, rev)
-    osc(ac, 'sine', 523.25, t + 0.36, 0.5, 0.18, rev)
+    const ac = getCtx(), t = ac.currentTime
+    note(440, t,       0.15, 'sine', 0.2)
+    note(440, t + 0.2, 0.15, 'sine', 0.15)
   },
 
-  // Rematch / ready — ascending whoosh + bright ping
+  // Whoosh for rematch / game reset
   rematch: () => {
+    const ac = getCtx(), t = ac.currentTime
+    const osc = ac.createOscillator(), env = ac.createGain()
+    osc.connect(env); env.connect(ac.destination)
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(200, t)
+    osc.frequency.exponentialRampToValueAtTime(600, t + 0.2)
+    env.gain.setValueAtTime(0.2, t)
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.25)
+    osc.start(t); osc.stop(t + 0.3)
+  },
+
+  // Soft error buzz
+  error: () => {
+    const ac = getCtx(), t = ac.currentTime
+    note(180, t,       0.08, 'square', 0.15)
+    note(160, t + 0.1, 0.08, 'square', 0.1)
+  },
+
+  // Gunshot: white noise burst + low thud
+  shoot: () => {
+    const ac = getCtx(), t = ac.currentTime
+    const bufSize = ac.sampleRate * 0.1
+    const buffer = ac.createBuffer(1, bufSize, ac.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1
+    const noise = ac.createBufferSource()
+    noise.buffer = buffer
+    const noiseEnv = ac.createGain()
+    noiseEnv.gain.setValueAtTime(0.5, t)
+    noiseEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
+    const filter = ac.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.frequency.value = 1400
+    filter.Q.value = 0.8
+    noise.connect(filter); filter.connect(noiseEnv); noiseEnv.connect(ac.destination)
+    noise.start(t); noise.stop(t + 0.12)
+    note(90, t,        0.15, 'sine', 0.5)
+    note(55, t + 0.02, 0.12, 'sine', 0.3)
+  },
+  // ── Splendor ──────────────────────────────────────────────────────────────
+
+  // Buy card — bright triumphant ascending chime
+  collect: () => {
     const ac  = getCtx()
     const t   = ac.currentTime
-    const rev = createReverb(ac, 1.0)
+    const rev = createReverb(ac, 1.8)
     rev.connect(ac.destination)
-
-    // Swoosh
-    const sw  = ac.createOscillator()
-    const swg = ac.createGain()
-    const filt = ac.createBiquadFilter()
-    filt.type = 'bandpass'; filt.frequency.value = 800; filt.Q.value = 2
-    sw.type = 'sawtooth'
-    sw.frequency.setValueAtTime(150, t)
-    sw.frequency.exponentialRampToValueAtTime(900, t + 0.22)
-    swg.gain.setValueAtTime(0, t)
-    swg.gain.linearRampToValueAtTime(0.2, t + 0.05)
-    swg.gain.exponentialRampToValueAtTime(0.001, t + 0.25)
-    sw.connect(filt); filt.connect(swg); swg.connect(ac.destination)
-    sw.start(t); sw.stop(t + 0.3)
-
-    // Bright ping at end
-    osc(ac, 'sine', 1046.5, t + 0.2, 0.6, 0.3, rev)
-    osc(ac, 'sine', 1318.5, t + 0.25, 0.45, 0.2, rev)
+    ;[523, 659, 784, 1047, 1319].forEach((freq, i) => {
+      osc(ac, 'sine',     freq,     t + i * 0.07, 0.35, 0.22, rev)
+      osc(ac, 'triangle', freq * 2, t + i * 0.07, 0.2,  0.08, rev)
+    })
+    osc(ac, 'sine', 1568, t + 0.42, 0.55, 0.25, rev)
+    osc(ac, 'sine', 2093, t + 0.46, 0.4,  0.15, rev)
   },
 
-  // Error — soft dull thud, not harsh
-  error: () => {
+  // Reserve card — soft mysterious shimmer
+  select: () => {
+    const ac  = getCtx()
+    const t   = ac.currentTime
+    const rev = createReverb(ac, 2.0)
+    rev.connect(ac.destination)
+    osc(ac, 'sine', 277,  t,        0.5,  0.18, rev)
+    osc(ac, 'sine', 330,  t + 0.1,  0.45, 0.15, rev)
+    osc(ac, 'sine', 415,  t + 0.22, 0.55, 0.14, rev)
+    osc(ac, 'sine', 1109, t + 0.15, 0.4,  0.07, rev)
+    osc(ac, 'sine', 1480, t + 0.25, 0.3,  0.05, rev)
+  },
+
+  // Take gems — satisfying coin/chip clinks
+  pop: () => {
     const ac = getCtx()
     const t  = ac.currentTime
-
-    const o   = ac.createOscillator()
-    const g   = ac.createGain()
-    const f   = ac.createBiquadFilter()
-    f.type    = 'lowpass'; f.frequency.value = 300
-
-    o.type = 'square'
-    o.frequency.setValueAtTime(180, t)
-    o.frequency.exponentialRampToValueAtTime(90, t + 0.18)
-
-    g.gain.setValueAtTime(0, t)
-    g.gain.linearRampToValueAtTime(0.25, t + 0.02)
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22)
-
-    o.connect(f); f.connect(g); g.connect(ac.destination)
-    o.start(t); o.stop(t + 0.25)
-
-    // Short low sine underneath
-    osc(ac, 'sine', 110, t, 0.2, 0.18, ac.destination)
+    ;[1320, 1540, 1180].forEach((freq, i) => {
+      const when = t + i * 0.07
+      const o = ac.createOscillator()
+      const g = ac.createGain()
+      const f = ac.createBiquadFilter()
+      f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 12
+      o.type = 'sine'
+      o.frequency.setValueAtTime(freq, when)
+      o.frequency.exponentialRampToValueAtTime(freq * 0.65, when + 0.1)
+      g.gain.setValueAtTime(0, when)
+      g.gain.linearRampToValueAtTime(0.28, when + 0.004)
+      g.gain.exponentialRampToValueAtTime(0.001, when + 0.13)
+      o.connect(f); f.connect(g); g.connect(ac.destination)
+      o.start(when); o.stop(when + 0.15)
+      const bsz = Math.floor(ac.sampleRate * 0.018)
+      const nb  = ac.createBuffer(1, bsz, ac.sampleRate)
+      const nd  = nb.getChannelData(0)
+      for (let j = 0; j < bsz; j++) nd[j] = (Math.random()*2-1) * (1 - j/bsz)
+      const ns = ac.createBufferSource()
+      ns.buffer = nb
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(0.06, when)
+      ng.gain.exponentialRampToValueAtTime(0.001, when + 0.018)
+      ns.connect(ng); ng.connect(ac.destination)
+      ns.start(when); ns.stop(when + 0.02)
+    })
   },
 
-  // Shoot — realistic-ish gunshot (noise burst + body resonance)
-  shoot: () => {
-    const ac = getCtx()
-    const t  = ac.currentTime
-
-    // Noise burst — crack
-    const bufSize = Math.floor(ac.sampleRate * 0.12)
-    const buf     = ac.createBuffer(1, bufSize, ac.sampleRate)
-    const data    = buf.getChannelData(0)
-    for (let i = 0; i < bufSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 0.6)
-    }
-    const noise  = ac.createBufferSource()
-    noise.buffer = buf
-
-    const hp = ac.createBiquadFilter()
-    hp.type  = 'highpass'; hp.frequency.value = 1800
-
-    const lp = ac.createBiquadFilter()
-    lp.type  = 'lowpass'; lp.frequency.value = 6000
-
-    const ng = ac.createGain()
-    ng.gain.setValueAtTime(0.8, t)
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.09)
-
-    noise.connect(hp); hp.connect(lp); lp.connect(ng); ng.connect(ac.destination)
-    noise.start(t); noise.stop(t + 0.12)
-
-    // Body thud — low sine with fast decay
-    const body = ac.createOscillator()
-    const bg   = ac.createGain()
-    body.type  = 'sine'
-    body.frequency.setValueAtTime(180, t)
-    body.frequency.exponentialRampToValueAtTime(55, t + 0.12)
-    bg.gain.setValueAtTime(0, t)
-    bg.gain.linearRampToValueAtTime(0.6, t + 0.008)
-    bg.gain.exponentialRampToValueAtTime(0.001, t + 0.18)
-    body.connect(bg); bg.connect(ac.destination)
-    body.start(t); body.stop(t + 0.2)
-
-    // Mid resonance
-    osc(ac, 'sine', 380, t + 0.01, 0.12, 0.15, ac.destination)
-  },
 }
 
 export function playSound(name) {
@@ -223,6 +161,6 @@ export function playSound(name) {
     if (ac.state === 'suspended') ac.resume()
     SOUNDS[name]?.()
   } catch (e) {
-    // Silently fail
+    // Silently fail — audio not critical
   }
 }
