@@ -601,40 +601,85 @@ function GameBoard({ state, player, players, onAction, onBack }) {
         }}>⚡ FINAL ROUND — {state.final_trigger} reached 15 VP!</div>
       )}
 
-      {/* ── Opponents compact strip ── */}
+      {/* ── Opponents full info strip ── */}
       <div style={{
-        display:'flex', gap:6, padding:'5px 10px', flexShrink:0,
+        display:'flex', gap:6, padding:'5px 8px', flexShrink:0,
         overflowX:'auto', background:'rgba(0,0,0,0.3)',
         borderBottom:'1px solid #0e1f0e',
       }}>
         {(state.players||[]).filter(n=>n!==player).map(name=>{
           const pp=safe(players,name,(state.players||[]).indexOf(name))
           const h=state.hands?.[name]||{}, cur=state.current===name
+          const bonus=h.bonus||{}, handGems=h.gems||{}
+          const reservedCount=h.reserved?.length||0
           return (
             <div key={name} style={{
-              display:'flex', alignItems:'center', gap:6, flexShrink:0,
-              background:cur?'rgba(245,158,11,0.1)':'rgba(255,255,255,0.04)',
+              flexShrink:0, minWidth:160,
+              background:cur?'rgba(245,158,11,0.08)':'rgba(255,255,255,0.03)',
               border:`1px solid ${cur?'#f59e0b55':'#1a2a1a'}`,
-              borderRadius:8, padding:'4px 8px',
+              borderRadius:10, padding:'6px 8px',
             }}>
-              <span style={{ fontSize:14 }}>{pp.emoji}</span>
-              <div>
-                <div style={{ color:pp.color, fontWeight:700, fontSize:11 }}>{name}</div>
-                <div style={{ color:'#475569', fontSize:9 }}>
-                  {h.cards?.length||0}🃏 {h.vp||0}VP
+              {/* Name + VP */}
+              <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
+                <span style={{ fontSize:13 }}>{pp.emoji}</span>
+                <span style={{ color:pp.color, fontWeight:700, fontSize:12, flex:1 }}>{name}</span>
+                <div style={{
+                  background:'rgba(251,191,36,0.15)', border:'1px solid #f59e0b44',
+                  borderRadius:5, padding:'1px 6px',
+                  color:'#fbbf24', fontSize:13, fontWeight:900,
+                }}>{h.vp||0}<span style={{ fontSize:8, color:'#78350f', marginLeft:1 }}>VP</span></div>
+              </div>
+
+              {/* Cards bought — bonus per color */}
+              <div style={{ marginBottom:3 }}>
+                <div style={{ color:'#334155', fontSize:7, letterSpacing:1, marginBottom:2 }}>CARDS</div>
+                <div style={{ display:'flex', gap:2 }}>
+                  {gems.map(g=>{
+                    const b=bonus[g]||0
+                    return (
+                      <div key={g} style={{
+                        width:20, height:20, borderRadius:3, flexShrink:0,
+                        background:b>0?BONUS_COLOR[g]:'rgba(255,255,255,0.04)',
+                        border:`1px solid ${b>0?BONUS_COLOR[g]+'66':'#1a2a1a'}`,
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        fontSize:9, fontWeight:900,
+                        color:b>0?(g==='white'?'#1e293b':'#fff'):'#2d3f2d',
+                      }}>{b>0?b:'·'}</div>
+                    )
+                  })}
+                  {/* Reserved count */}
+                  {reservedCount>0&&(
+                    <div style={{
+                      width:20, height:20, borderRadius:3, flexShrink:0,
+                      background:'rgba(107,114,128,0.2)', border:'1px solid #374151',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:8, fontWeight:900, color:'#6b7280', gap:1,
+                    }}>
+                      <span style={{ fontSize:7 }}>📋</span>{reservedCount}
+                    </div>
+                  )}
                 </div>
               </div>
-              {/* Bonus gems mini */}
-              <div style={{ display:'flex', gap:2 }}>
-                {gems.map(g=>{
-                  const b=(h.bonus||{})[g]||0
-                  return b>0?<div key={g} style={{
-                    width:14, height:14, borderRadius:3,
-                    background:BONUS_COLOR[g], fontSize:8, fontWeight:900,
-                    color:g==='white'?'#1e293b':'#fff',
-                    display:'flex', alignItems:'center', justifyContent:'center',
-                  }}>{b}</div>:null
-                })}
+
+              {/* Gems in hand */}
+              <div>
+                <div style={{ color:'#334155', fontSize:7, letterSpacing:1, marginBottom:2 }}>GEMS</div>
+                <div style={{ display:'flex', gap:2, flexWrap:'wrap' }}>
+                  {[...gems,'gold'].map(g=>{
+                    const count=handGems[g]||0
+                    return count>0?(
+                      <div key={g} style={{
+                        width:18, height:18, borderRadius:'50%', flexShrink:0,
+                        background:GEM[g].c2, border:`1px solid ${GEM[g].c1}33`,
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        fontSize:9, fontWeight:900, color:GEM[g].text,
+                      }}>{count}</div>
+                    ):null
+                  })}
+                  {Object.values(handGems).every(v=>v===0)&&(
+                    <span style={{ color:'#2d3f2d', fontSize:9 }}>—</span>
+                  )}
+                </div>
               </div>
             </div>
           )
