@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -102,8 +103,6 @@ export default function Snake({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const canvasRef     = useRef(null)
-  const wsRef         = useRef(null)
-  const mountedRef    = useRef(true)
   const stateRef      = useRef(null)
   const playersRef    = useRef(players)
   const animIdRef     = useRef(null)
@@ -117,15 +116,11 @@ export default function Snake({ player, players, onBack }) {
 
   const p = getPlayer(players, player, 0)
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-    ws.onopen = () => { if (mountedRef.current) setStatus('Waiting...') }
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       setState(data)
-
+      stateRef.current = data
+      const connected = data.connected || []
       if (data.winner && data.winner !== prevWinner.current) {
         if (data.winner === player)      { playSound('win');  vibrate(VIBRATIONS.win)  }
         else if (data.winner !== 'draw') { playSound('lose'); vibrate(VIBRATIONS.lose) }
@@ -133,10 +128,8 @@ export default function Snake({ player, players, onBack }) {
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
-
-      const connected = data.connected || []
-      if (data.message)                  setStatus(data.message)
-      else if (data.phase === 'lobby')   setStatus(connected.length < 2 ? 'Waiting for players...' : 'Ready!')
+      if      (data.message)               setStatus(data.message)
+      else if (data.phase === 'lobby')     setStatus(connected.length < 2 ? 'Waiting for players...' : 'Ready!')
       else if (data.countdown > 0) {
         setStatus(`Starting in ${data.countdown}...`)
         showArrowRef.current = true
@@ -146,25 +139,20 @@ export default function Snake({ player, players, onBack }) {
         setStatus('Go! 🐍')
         showArrowRef.current = false
       }
-      else if (data.phase === 'playing') setStatus('🐍 Game on!')
-      else if (data.winner === 'draw')   setStatus('🤝 Draw!')
-      else if (data.winner === player)   setStatus('🎉 You won!')
-      else if (data.winner)              setStatus(`${data.winner} wins!`)
-    }
-    ws.onclose = () => { if (mountedRef.current) { setStatus('Reconnecting...'); setTimeout(connect, 2000) } }
-    ws.onerror = () => ws.close()
-  }, [player])
+      else if (data.phase === 'playing')   setStatus('🐍 Game on!')
+      else if (data.winner === 'draw')     setStatus('🤝 Draw!')
+      else if (data.winner === player)     setStatus('🎉 You won!')
+      else if (data.winner)               setStatus(`${data.winner} wins!`)
+    },
+    () => setStatus('Waiting...')
+  )
 
   useEffect(() => {
-    mountedRef.current = true
-    connect()
     return () => {
-      mountedRef.current = false
-      wsRef.current?.close()
       clearTimeout(arrowTimerRef.current)
       cancelAnimationFrame(animIdRef.current)
     }
-  }, [connect])
+  }, [])
 
   // Canvas render loop — uses callback ref so it starts the moment canvas mounts
   const startLoop = useCallback(() => {
@@ -337,7 +325,7 @@ export default function Snake({ player, players, onBack }) {
     const MAP = { ArrowUp:'UP', ArrowDown:'DOWN', ArrowLeft:'LEFT', ArrowRight:'RIGHT', w:'UP', s:'DOWN', a:'LEFT', d:'RIGHT' }
     const onKey = (e) => {
       const dir = MAP[e.key]
-      if (dir) { e.preventDefault(); wsRef.current?.send(JSON.stringify({ type:'dir', dir })) }
+      if (dir) { e.preventDefault(); send({ type:'dir', dir }) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -351,13 +339,13 @@ export default function Snake({ player, players, onBack }) {
     if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'RIGHT' : 'LEFT') : (dy > 0 ? 'DOWN' : 'UP')
     vibrate([15])
-    wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
+    send({ type:'dir', dir })
     touchStart.current = null
   }
 
-  const sendDir  = (dir) => wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
-  const sendStart = () => wsRef.current?.send(JSON.stringify({ type:'start' }))
-  const sendReset = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type:'reset' })) }
+  const sendDir  = (dir) => send({ type:'dir', dir })
+  const sendStart = () => send({ type:'start' })
+  const sendReset = () => { playSound('rematch'); send({ type:'reset' }) }
 
   const phase     = state?.phase || 'lobby'
   const connected = state?.connected || []

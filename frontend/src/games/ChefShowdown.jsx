@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -505,42 +506,20 @@ export default function ChefShowdown({ player, players, onBack }) {
   const [state, setState] = useState(null)
   const [submitted, setSubmitted] = useState(false)
   const [showTasting, setShowTasting] = useState(false)
-  const wsRef = useRef(null)
-  const mountedRef = useRef(true)
   const tastingShownRef = useRef(false)
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      setState(data)
-      if (data.phase === 'lobby' || data.phase === 'announcing' || data.phase === 'ready') {
-        setSubmitted(false)
-        tastingShownRef.current = false
-        setShowTasting(false)
-      }
-      // Trigger tasting animation once when podium arrives (scores are fully ready)
-      if (data.phase === 'podium' && !tastingShownRef.current) {
-        tastingShownRef.current = true
-        setShowTasting(true)
-      }
+  const { send } = useGameWS(WS_URL, player, (data) => {
+    setState(data)
+    if (data.phase === 'lobby' || data.phase === 'announcing' || data.phase === 'ready') {
+      setSubmitted(false)
+      tastingShownRef.current = false
+      setShowTasting(false)
     }
-    ws.onclose = () => { if (mountedRef.current) setTimeout(connect, 2000) }
-    ws.onerror = () => ws.close()
-  }, [player])
-
-  useEffect(() => {
-    mountedRef.current = true
-    connect()
-    return () => {
-      mountedRef.current = false
-      wsRef.current?.close()
+    if (data.phase === 'podium' && !tastingShownRef.current) {
+      tastingShownRef.current = true
+      setShowTasting(true)
     }
-  }, [connect])
-
-  const send = (msg) => wsRef.current?.send(JSON.stringify(msg))
+  })
 
   const handleStart = () => send({ type: 'start' })
   const handleReady = () => send({ type: 'ready' })

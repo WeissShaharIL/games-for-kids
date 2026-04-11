@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -258,8 +259,6 @@ export default function Lego({ player, players, onBack }) {
   const [ghostCell, setGhostCell]   = useState(null)  // {col, row}
 
   const canvasRef    = useRef(null)
-  const wsRef        = useRef(null)
-  const mountedRef   = useRef(true)
   const bricksRef    = useRef([])
   const originRef    = useRef({ x: 0, y: 0 })
 
@@ -277,24 +276,15 @@ export default function Lego({ player, players, onBack }) {
   }
 
   // ── WebSocket ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    mountedRef.current = true
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Connected!') }
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       if (data.bricks !== undefined) setBricks(data.bricks)
       if (data.message) setStatus(data.message)
       else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else setStatus('🧱 Building together!')
-    }
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
-    ws.onerror = () => ws.close()
-    return () => { mountedRef.current = false; ws.close() }
-  }, [player])
+    },
+    () => setStatus('Connected!')
+  )
 
   // ── Canvas render ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -396,7 +386,7 @@ export default function Lego({ player, players, onBack }) {
     const [sw, sh] = selectedSize
     const gc = Math.max(0, Math.min(BOARD_COLS - sw, ghostCell.col))
     const gr = Math.max(0, Math.min(BOARD_ROWS - sh, ghostCell.row))
-    wsRef.current?.send(JSON.stringify({
+    send({
       type: 'add', col: gc, row: gr, w: sw, h: sh, color: selectedColor,
     }))
     playSound('place')
@@ -406,13 +396,13 @@ export default function Lego({ player, players, onBack }) {
 
   const deleteBrick = () => {
     if (selectedId === null) return
-    wsRef.current?.send(JSON.stringify({ type: 'delete', id: selectedId }))
+    send({ type: 'delete', id: selectedId })
     playSound('error'); vibrate(30)
     setSelectedId(null)
   }
 
   const clearAll = () => {
-    wsRef.current?.send(JSON.stringify({ type: 'clear' }))
+    send({ type: 'clear' })
     setSelectedId(null)
     setGhostCell(null)
   }

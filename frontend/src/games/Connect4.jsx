@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { playSound } from '../sounds'
 import { getPlayer } from '../playerUtils'
+import { useGameWS } from '../hooks/useGameWS'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/connect4/ws`
@@ -11,24 +12,10 @@ const EMPTY_BOARD = () => Array(ROWS).fill(null).map(() => Array(COLS).fill(''))
 export default function Connect4({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
-  const wsRef               = useRef(null)
-  const mountedRef          = useRef(true)
   const prevWinner          = useRef(null)
 
-  const p = getPlayer(players, player, 0)
-
-  // Get opponent from connected players (dynamic, not hardcoded)
-  const connected = state?.connected || []
-  const other     = connected.find(n => n !== player) || null
-  const op        = other ? getPlayer(players, other, 1) : null
-
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Waiting for opponent...') }
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       setState(data)
       if (data.winner && data.winner !== prevWinner.current) {
         if (data.winner === 'draw')      playSound('draw')
@@ -37,7 +24,6 @@ export default function Connect4({ player, players, onBack }) {
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
-      const opp = data.connected?.find(n => n !== player)
       if (data.message)                      setStatus(data.message)
       else if (data.connected?.length < 2)   setStatus('Waiting for opponent...')
       else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
@@ -45,29 +31,28 @@ export default function Connect4({ player, players, onBack }) {
       else if (data.winner)                  setStatus(`${data.winner} won!`)
       else if (data.current_turn === player) setStatus('🔴 Your turn!')
       else                                   setStatus(`${data.current_turn}'s turn...`)
-    }
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...'); setTimeout(connect, 2000) }
-    ws.onerror = () => ws.close()
-  }, [player])
+    },
+    () => setStatus('Waiting for opponent...')
+  )
 
-  useEffect(() => {
-    mountedRef.current = true; connect()
-    return () => { mountedRef.current = false; wsRef.current?.close() }
-  }, [connect])
+  const p          = getPlayer(players, player, 0)
+  const connected  = state?.connected || []
+  const other      = connected.find(n => n !== player) || null
+  const op         = other ? getPlayer(players, other, 1) : null
+  const myScore    = state?.scores?.[player] ?? 0
+  const otherScore = other ? (state?.scores?.[other] ?? 0) : 0
+  const bothHere   = connected.length >= 2
+  const myTurn     = state?.current_turn === player && bothHere && !state?.winner
 
   const drop = (col) => {
     if (!state || state.winner || state.current_turn !== player) return
     if (state.connected?.length < 2) return
     playSound('place')
-    wsRef.current?.send(JSON.stringify({ type: 'drop', col }))
+    send({ type: 'drop', col })
   }
 
-  const rematch = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type: 'rematch' })) }
+  const rematch = () => { playSound('rematch'); send({ type: 'rematch' }) }
 
-  const myScore    = state?.scores?.[player] ?? 0
-  const otherScore = other ? (state?.scores?.[other] ?? 0) : 0
-  const bothHere   = connected.length >= 2
-  const myTurn     = state?.current_turn === player && bothHere && !state?.winner
   const statusBg    = state?.winner === player ? '#dcfce7' : state?.winner === 'draw' ? '#fef9c3' : state?.winner ? '#fee2e2' : myTurn ? p.light : '#f1f5f9'
   const statusColor = state?.winner === player ? '#15803d' : state?.winner === 'draw' ? '#92400e' : state?.winner ? '#dc2626' : myTurn ? p.color : '#64748b'
   const cellSize    = Math.min(Math.floor((window.innerWidth - 32) / COLS), 52)
@@ -86,7 +71,6 @@ export default function Connect4({ player, players, onBack }) {
         <div style={{ width: 64 }} />
       </div>
 
-      {/* Score bar — only show opponent when connected */}
       <div style={s.scoreBar}>
         <div style={{ ...s.scoreCard, borderColor: p.color, background: p.light }}>
           <span style={{ fontSize: 20 }}>{p.emoji}</span>

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -245,52 +246,32 @@ function TapArea({ color, onTap, taps, side }) {
 export default function TugOfWar({ player, players, onBack }) {
   const [state, setState] = useState(null)
   const [toast, setToast] = useState(null)
-  const wsRef             = useRef(null)
-  const mountedRef        = useRef(true)
   const prevPhase         = useRef(null)
   const prevJoin          = useRef(null)
   const tapCooldown       = useRef(false)
 
   const myInfo = getPlayer(players, player, 0)
 
-  useEffect(() => {
-    mountedRef.current = true
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen  = () => {}
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      setState(data)
-
-      // Join toast
-      if (data.join_msg?.player && data.join_msg.player !== prevJoin.current) {
-        prevJoin.current = data.join_msg.player
-        if (data.join_msg.player !== player) {
-          setToast(`${data.join_msg.player} joined!`)
-          setTimeout(() => { if (mountedRef.current) setToast(null) }, 1200)
-        }
-      }
-
-      // Phase sounds
-      if (data.phase !== prevPhase.current) {
-        if (data.phase === 'countdown') playSound('rematch')
-        if (data.phase === 'result') {
-          const mySide = data.sides?.[player]
-          if (data.winner === mySide)    { playSound('win');  vibrate(VIBRATIONS.win)  }
-          else if (data.winner === 'draw') { playSound('draw'); vibrate(VIBRATIONS.draw) }
-          else                           { playSound('lose'); vibrate(VIBRATIONS.lose) }
-        }
-        prevPhase.current = data.phase
+  const { send, mountedRef } = useGameWS(WS_URL, player, (data) => {
+    setState(data)
+    if (data.join_msg?.player && data.join_msg.player !== prevJoin.current) {
+      prevJoin.current = data.join_msg.player
+      if (data.join_msg.player !== player) {
+        setToast(`${data.join_msg.player} joined!`)
+        setTimeout(() => { if (mountedRef.current) setToast(null) }, 1200)
       }
     }
-    ws.onclose = () => {}
-    ws.onerror = () => ws.close()
-    return () => { mountedRef.current = false; ws.close() }
-  }, [player])
-
-  const send = (msg) => wsRef.current?.send(JSON.stringify(msg))
+    if (data.phase !== prevPhase.current) {
+      if (data.phase === 'countdown') playSound('rematch')
+      if (data.phase === 'result') {
+        const mySide = data.sides?.[player]
+        if (data.winner === mySide)      { playSound('win');  vibrate(VIBRATIONS.win)  }
+        else if (data.winner === 'draw') { playSound('draw'); vibrate(VIBRATIONS.draw) }
+        else                             { playSound('lose'); vibrate(VIBRATIONS.lose) }
+      }
+      prevPhase.current = data.phase
+    }
+  })
 
   const sendTap = () => {
     if (state?.phase !== 'playing') return

@@ -1,27 +1,43 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
+import { useGameWS } from '../hooks/useGameWS'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/tictactoe/ws`
 
-
 export default function TicTacToe({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
-  const wsRef               = useRef(null)
-  const mountedRef          = useRef(true)
   const prevWinner          = useRef(null)
 
-  // Always safe — never null
-  const p = getPlayer(players, player, 0)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
+      setState(data)
+      if (data.winner && data.winner !== prevWinner.current) {
+        if (data.winner === 'draw')      playSound('draw')
+        else if (data.winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
+        else                             { playSound('lose'); vibrate(VIBRATIONS.lose) }
+        prevWinner.current = data.winner
+      }
+      if (!data.winner) prevWinner.current = null
+      const connected = data.connected || []
+      if (data.message)              setStatus(data.message)
+      else if (connected.length < 2) setStatus('Waiting for opponent...')
+      else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
+      else if (data.winner === player)        setStatus('🎉 You won!')
+      else if (data.winner)                  setStatus(`${data.winner} won!`)
+      else if (data.current_turn === player) setStatus('⭐ Your turn!')
+      else                                   setStatus(`${data.current_turn}'s turn...`)
+    },
+    () => setStatus('Waiting for opponent...')
+  )
 
-  // Only derive opponent from server's connected list — never guess from players map
+  const p           = getPlayer(players, player, 0)
   const bothHere    = (state?.connected?.length ?? 0) >= 2
   const other       = state?.connected?.find(n => n !== player) || null
   const op          = other ? getPlayer(players, other, 1) : getPlayer(players, '__waiting__', 1)
-
   const mySymbol    = state?.symbols?.[player]    || '?'
   const otherSymbol = other ? (state?.symbols?.[other] || '?') : '?'
   const myScore     = state?.scores?.[player]     ?? 0
@@ -38,67 +54,18 @@ export default function TicTacToe({ player, players, onBack }) {
     return []
   })()
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      if (!mountedRef.current) return
-      setStatus('Waiting for opponent...')
-    }
-
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      setState(data)
-
-      if (data.winner && data.winner !== prevWinner.current) {
-        if (data.winner === 'draw')      playSound('draw')
-        else if (data.winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
-        else                             { playSound('lose'); vibrate(VIBRATIONS.lose) }
-        prevWinner.current = data.winner
-      }
-      if (!data.winner) prevWinner.current = null
-
-      const connected = data.connected || []
-      if (data.message)              setStatus(data.message)
-      else if (connected.length < 2) setStatus('Waiting for opponent...')
-      else if (data.winner === 'draw')        setStatus("🤝 It's a draw!")
-      else if (data.winner === player)        setStatus('🎉 You won!')
-      else if (data.winner)                  setStatus(`${data.winner} won!`)
-      else if (data.current_turn === player) setStatus('⭐ Your turn!')
-      else                                   setStatus(`${data.current_turn}'s turn...`)
-    }
-
-    ws.onclose = () => {
-      if (!mountedRef.current) return
-      setStatus('Disconnected. Reconnecting...')
-      setTimeout(connect, 2000)
-    }
-    ws.onerror = () => ws.close()
-  }, [player])
-
-  useEffect(() => {
-    mountedRef.current = true
-    connect()
-    return () => {
-      mountedRef.current = false
-      wsRef.current?.close()
-    }
-  }, [connect])
-
   const move = (i) => {
     if (!state || state.winner || state.current_turn !== player || !bothHere) return
     if (state.board?.[i]) return
     vibrate(VIBRATIONS.tap)
     playSound('place')
-    wsRef.current?.send(JSON.stringify({ type: 'move', index: i }))
+    send({ type: 'move', index: i })
   }
 
   const rematch = () => {
     vibrate(VIBRATIONS.pick)
     playSound('rematch')
-    wsRef.current?.send(JSON.stringify({ type: 'rematch' }))
+    send({ type: 'rematch' })
   }
 
   const statusBg =

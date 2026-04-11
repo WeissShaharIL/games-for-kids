@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -53,46 +54,29 @@ export default function Shooter({ player, players, onBack }) {
   const [figKey, setFigKey]  = useState(0)
   const [flash, setFlash]    = useState(null)
   const [muzzle, setMuzzle]  = useState(false)
-  const wsRef                = useRef(null)
-  const mountedRef           = useRef(true)
   const cooldown             = useRef(false)
   const prevPhase            = useRef(null)
   const prevFigId            = useRef(null)
 
   const p = getPlayer(players, player, 0)
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-    ws.onopen = () => {}
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      setState(data)
-      if (data.figure && data.figure.id !== prevFigId.current) {
-        prevFigId.current = data.figure.id
-        setFigKey(k => k + 1)
-      }
-      if (!data.figure) prevFigId.current = null
-      if (data.phase !== prevPhase.current) {
-        if (data.phase === 'countdown') playSound('rematch')
-        if (data.phase === 'result') {
-          const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
-          if (winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
-          else { playSound('lose'); vibrate(VIBRATIONS.lose) }
-        }
-        prevPhase.current = data.phase
-      }
+  const { send, mountedRef } = useGameWS(WS_URL, player, (data) => {
+    setState(data)
+    if (data.figure && data.figure.id !== prevFigId.current) {
+      prevFigId.current = data.figure.id
+      setFigKey(k => k + 1)
     }
-    ws.onclose = () => { if (mountedRef.current) setTimeout(connect, 2000) }
-    ws.onerror = () => ws.close()
-  }, [player])
-
-  useEffect(() => {
-    mountedRef.current = true
-    connect()
-    return () => { mountedRef.current = false; wsRef.current?.close() }
-  }, [connect])
+    if (!data.figure) prevFigId.current = null
+    if (data.phase !== prevPhase.current) {
+      if (data.phase === 'countdown') playSound('rematch')
+      if (data.phase === 'result') {
+        const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
+        if (winner === player) { playSound('win'); vibrate(VIBRATIONS.win) }
+        else { playSound('lose'); vibrate(VIBRATIONS.lose) }
+      }
+      prevPhase.current = data.phase
+    }
+  })
 
   const triggerFlash = (type) => {
     setFlash(type); setMuzzle(true)
@@ -110,7 +94,7 @@ export default function Shooter({ player, players, onBack }) {
     if (!fig)                    { triggerFlash('miss');  showFloat('💨 Miss!', '#94a3b8') }
     else if (fig.type==='villain') { triggerFlash('hit');   showFloat('+1 🎯', p.color) }
     else                          { triggerFlash('wrong'); showFloat('-1 💔', '#ef4444') }
-    wsRef.current?.send(JSON.stringify({ type: 'shoot' }))
+    send({ type: 'shoot' })
   }
 
   const showFloat = (label, color) => {
@@ -119,8 +103,8 @@ export default function Shooter({ player, players, onBack }) {
     setTimeout(() => { if (mountedRef.current) setFloat(null) }, 900)
   }
 
-  const sendStart = () => wsRef.current?.send(JSON.stringify({ type: 'start' }))
-  const reset = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type: 'reset' })) }
+  const sendStart = () => send({ type: 'start' })
+  const reset = () => { playSound('rematch'); send({ type: 'reset' }) }
 
   if (!state) return (
     <div style={{ minHeight:'100vh', background:'#0f172a', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif' }}>

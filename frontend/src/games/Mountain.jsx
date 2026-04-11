@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -150,8 +151,6 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
   const [status, setStatus]     = useState('Connecting...')
   const [answered, setAnswered] = useState(false)
   const canvasRef               = useRef(null)
-  const wsRef                   = useRef(null)
-  const mountedRef              = useRef(true)
   const prevPhase               = useRef(null)
   const prevQuestion            = useRef(null)
 
@@ -159,14 +158,8 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
   const myInfo     = allPlayers[player] || FALLBACK[0]
   const p          = { color: myInfo.color, light: myInfo.light, emoji: myInfo.emoji }
 
-  useEffect(() => {
-    mountedRef.current = true
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Waiting for players...') }
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       const data = JSON.parse(e.data)
       setState(data)
 
@@ -210,10 +203,9 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
         setStatus(data.winner === player ? '🎉 You win!' : `${allPlayers[data.winner]?.emoji||''} ${data.winner} wins!`)
       }
     }
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
-    ws.onerror = () => ws.close()
-    return () => { mountedRef.current = false; ws.close() }
-  }, [player])
+    },
+    () => setStatus('Waiting for players...')
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -226,11 +218,11 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
   const sendAnswer = (choice) => {
     if (answered) return
     setAnswered(true); playSound('place'); vibrate(VIBRATIONS.tap)
-    wsRef.current?.send(JSON.stringify({ type: 'answer', choice }))
+    send({ type: 'answer', choice })
   }
-  const sendPass   = () => { if (state?.passed) return; playSound('error'); wsRef.current?.send(JSON.stringify({ type: 'pass' })) }
-  const sendStart  = () => wsRef.current?.send(JSON.stringify({ type: 'start' }))
-  const sendReset  = () => { prevPhase.current=null; prevQuestion.current=null; setAnswered(false); wsRef.current?.send(JSON.stringify({ type: 'reset' })) }
+  const sendPass   = () => { if (state?.passed) return; playSound('error'); send({ type: 'pass' }) }
+  const sendStart  = () => send({ type: 'start' })
+  const sendReset  = () => { prevPhase.current=null; prevQuestion.current=null; setAnswered(false); send({ type: 'reset' }) }
 
   const phase      = state?.phase
   const myTurn     = state?.whose_turn === player && phase === 'playing'

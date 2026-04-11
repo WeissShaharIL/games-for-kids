@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -23,12 +24,10 @@ export default function Balloons({ player, players, onBack }) {
   const [freezeUntil, setFreezeUntil] = useState(0)   // timestamp ms
   const [freezeLeft, setFreezeLeft]   = useState(0)   // seconds display
   const canvasRef     = useRef(null)
-  const wsRef         = useRef(null)
   const animRef       = useRef(null)
   const stateRef      = useRef(null)
   const popAnimsRef   = useRef([])
   const prevPhase     = useRef(null)
-  const mountedRef    = useRef(true)
   const freezeUntilRef = useRef(0)
   const freezeTimerRef = useRef(null)
 
@@ -55,76 +54,52 @@ export default function Balloons({ player, players, onBack }) {
     return () => clearInterval(freezeTimerRef.current)
   }, [freezeUntil])
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
-      setState(data)
-
-      // Handle freeze events
-      if (data.freeze_events?.length) {
-        data.freeze_events.forEach(ev => {
-          if (ev.target === player) {
-            const until = Date.now() + FREEZE_DURATION
-            freezeUntilRef.current = until
-            setFreezeUntil(until)
-            playSound('lose')
-            vibrate(VIBRATIONS.lose)
-          } else if (ev.by === player) {
-            playSound('win')
-            vibrate(VIBRATIONS.win)
-          }
-        })
-      }
-
-      if (data.pops?.length) {
-        data.pops.forEach(pop => {
-          const c = BALLOON_COLORS[pop.type] || BALLOON_COLORS.white
-          popAnimsRef.current.push({
-            x: pop.x, y: pop.y, label: c.label, color: c.fill,
-            born: Date.now(), id: Math.random(),
-          })
-          if (pop.player === player) {
-            vibrate(VIBRATIONS.tap)
-            pop.points > 0 ? playSound('place') : playSound('error')
-          }
-        })
-      }
-
-      if (data.phase !== prevPhase.current) {
-        if (data.phase === 'countdown') playSound('rematch')
-        if (data.phase === 'result') {
-          const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
-          winner === player ? playSound('win') : playSound('lose')
+  const { send, mountedRef } = useGameWS(WS_URL, player, (data) => {
+    setState(data)
+    if (data.freeze_events?.length) {
+      data.freeze_events.forEach(ev => {
+        if (ev.target === player) {
+          const until = Date.now() + FREEZE_DURATION
+          freezeUntilRef.current = until
+          setFreezeUntil(until)
+          playSound('lose')
+          vibrate(VIBRATIONS.lose)
+        } else if (ev.by === player) {
+          playSound('win')
+          vibrate(VIBRATIONS.win)
         }
-        if (data.phase === 'lobby') {
-          freezeUntilRef.current = 0
-          setFreezeUntil(0)
+      })
+    }
+    if (data.pops?.length) {
+      data.pops.forEach(pop => {
+        const c = BALLOON_COLORS[pop.type] || BALLOON_COLORS.white
+        popAnimsRef.current.push({
+          x: pop.x, y: pop.y, label: c.label, color: c.fill,
+          born: Date.now(), id: Math.random(),
+        })
+        if (pop.player === player) {
+          vibrate(VIBRATIONS.tap)
+          pop.points > 0 ? playSound('place') : playSound('error')
         }
-        prevPhase.current = data.phase
-      }
-
-      if (data.disconnected) {
-        setNotice(`${data.disconnected} disconnected`)
-        setTimeout(() => { if (mountedRef.current) setNotice('') }, 3000)
-      }
+      })
     }
-    ws.onclose = () => { if (!mountedRef.current) return; setTimeout(connect, 2000) }
-    ws.onerror = () => ws.close()
-  }, [player])
-
-  useEffect(() => {
-    mountedRef.current = true
-    connect()
-    return () => {
-      mountedRef.current = false
-      wsRef.current?.close()
-      cancelAnimationFrame(animRef.current)
-      clearInterval(freezeTimerRef.current)
+    if (data.phase !== prevPhase.current) {
+      if (data.phase === 'countdown') playSound('rematch')
+      if (data.phase === 'result') {
+        const winner = Object.entries(data.scores || {}).sort((a,b) => b[1]-a[1])[0]?.[0]
+        winner === player ? playSound('win') : playSound('lose')
+      }
+      if (data.phase === 'lobby') {
+        freezeUntilRef.current = 0
+        setFreezeUntil(0)
+      }
+      prevPhase.current = data.phase
     }
-  }, [connect])
+    if (data.disconnected) {
+      setNotice(`${data.disconnected} disconnected`)
+      setTimeout(() => { if (mountedRef.current) setNotice('') }, 3000)
+    }
+  })
 
   const startLoop = useCallback(() => {
     const canvas = canvasRef.current
@@ -305,7 +280,7 @@ export default function Balloons({ player, players, onBack }) {
     if (node) startLoop()
   }, [startLoop])
 
-  const send = (msg) => wsRef.current?.readyState === 1 && wsRef.current.send(JSON.stringify(msg))
+
 
   const handleTap = (e) => {
     e.preventDefault()

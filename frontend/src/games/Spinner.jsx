@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
@@ -250,37 +251,23 @@ export default function Spinner({ player, players, onBack }) {
   const [status, setStatus]       = useState('Connecting...')
   const [spinDone, setSpinDone]   = useState(false)
   const [tapRemaining, setTapRemaining] = useState(TAP_DURATION)
-  const wsRef                     = useRef(null)
   const prevPhase                 = useRef(null)
 
   const p     = getPlayer(players, player, 0)
   const other = state?.connected?.find(n => n !== player) || null
   const op    = other ? getPlayer(players, other, 1) : null
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen = () => setStatus('Connected!')
-
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       setState(data)
-
-      // Fix 1: only update timer when explicitly sent by server
       if (data.tap_remaining !== undefined && data.tap_remaining !== null) {
         setTapRemaining(data.tap_remaining)
       }
-
-      // Phase transitions
       if (data.phase !== prevPhase.current) {
         if (data.phase === 'tapping') { playSound('rematch'); setTapRemaining(TAP_DURATION) }
         if (data.phase === 'picking') { playSound('win'); vibrate(VIBRATIONS.win) }
-        // Fix 2: do NOT set spinDone here — only set it when animation ends
         prevPhase.current = data.phase
       }
-
-      // Status text
       if (data.message)                    setStatus(data.message)
       else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else if (data.phase === 'tapping')   setStatus('Tap as fast as you can!')
@@ -290,36 +277,32 @@ export default function Spinner({ player, players, onBack }) {
       }
       else if (data.phase === 'spinning')  setStatus('Ready to spin? 🎡')
       else if (data.phase === 'result')    setStatus('🎡 Spinning...')
-    }
+    },
+    () => setStatus('Connected!')
+  )
 
-    ws.onclose = () => { setStatus('Disconnected. Reconnecting...'); setTimeout(connect, 2000) }
-    ws.onerror = () => ws.close()
-  }, [player])
-
-  useEffect(() => { connect(); return () => wsRef.current?.close() }, [connect])
-
-  const sendTap = () => wsRef.current?.send(JSON.stringify({ type: 'tap' }))
+  const sendTap = () => send({ type: 'tap' })
 
   const sendClaim = (index) => {
     if (state?.whose_turn !== player) return
     if (state?.pieces?.[index] !== null && state?.pieces?.[index] !== undefined) return
     vibrate(VIBRATIONS.pick)
     playSound('place')
-    wsRef.current?.send(JSON.stringify({ type: 'claim', index }))
+    send({ type: 'claim', index })
   }
 
   const sendSpin = () => {
     vibrate(VIBRATIONS.spin)
     playSound('rematch')
     setSpinDone(false)
-    wsRef.current?.send(JSON.stringify({ type: 'spin' }))
+    send({ type: 'spin' })
   }
 
   const sendReset = () => {
     setSpinDone(false)
     setTapRemaining(TAP_DURATION)
     prevPhase.current = null
-    wsRef.current?.send(JSON.stringify({ type: 'reset' }))
+    send({ type: 'reset' })
   }
 
   // Fix 2: winner revealed only after spin animation completes

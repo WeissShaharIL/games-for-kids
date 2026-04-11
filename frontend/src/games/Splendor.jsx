@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { vibrate, VIBRATIONS } from '../vibrate'
 import { getPlayer } from '../playerUtils'
 import { playSound } from '../sounds'
@@ -1113,19 +1114,10 @@ function GameBoard({ state, player, players, onAction, onBack }) {
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function Splendor({ player, players, onBack }) {
   const [state, setState] = useState(null)
-  const wsRef=useRef(null), mountedRef=useRef(true)
-  const connect=useCallback(()=>{
-    const ws=new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current=ws
-    ws.onmessage=e=>{ if(!mountedRef.current) return; const d=JSON.parse(e.data); if(!d.error) setState(d) }
-    ws.onclose=()=>{ if(mountedRef.current) setTimeout(connect,2000) }
-    ws.onerror=()=>ws.close()
-  },[player])
-  useEffect(()=>{
-    mountedRef.current=true; connect()
-    return()=>{ mountedRef.current=false; wsRef.current?.close() }
-  },[connect])
-  const send=msg=>wsRef.current?.send(JSON.stringify(msg))
+  const { send: wsSend } = useGameWS(WS_URL, player,
+    (d) => { if(!d.error) setState(d) }
+  )
+  const send = wsSend
   if(!state) return (
     <div style={{ minHeight:'100vh', background:'#060a06', display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ textAlign:'center' }}>

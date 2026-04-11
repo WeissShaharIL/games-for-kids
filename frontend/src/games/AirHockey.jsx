@@ -1,27 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
+import { getPlayer } from '../playerUtils'
 
 const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL      = `${WS_PROTOCOL}://${location.host}/api/airhockey/ws`
-
-const FALLBACKS = [
-  { color: '#16a34a', light: '#dcfce7', bg: '#f0fdf4', emoji: '🦁' },
-  { color: '#db2777', light: '#fce7f3', bg: '#fdf2f8', emoji: '🦋' },
-  { color: '#2563eb', light: '#dbeafe', bg: '#eff6ff', emoji: '🦊' },
-  { color: '#d97706', light: '#fef3c7', bg: '#fffbeb', emoji: '🌸' },
-]
-function safe(players, name, idx = 0) {
-  if (players?.[name]) return players[name]
-  return FALLBACKS[idx % FALLBACKS.length]
-}
 
 export default function AirHockey({ player, players, onBack }) {
   const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
   const canvasRef           = useRef(null)
-  const wsRef               = useRef(null)
-  const mountedRef          = useRef(true)
   const stateRef            = useRef(null)
   const animRef             = useRef(null)
   const prevGoal            = useRef(null)
@@ -29,32 +18,22 @@ export default function AirHockey({ player, players, onBack }) {
   const scaleRef            = useRef(1)
   const offsetRef           = useRef({ ox: 0, oy: 0 })
 
-  const p       = safe(players, player, 0)
+  const p       = getPlayer(players, player, 0)
   const other   = state?.connected?.find(n => n !== player) || null
-  const op      = other ? safe(players, other, 1) : null
+  const op      = other ? getPlayer(players, other, 1) : null
   const flipped = (state?.connected ?? []).indexOf(player) === 1
 
   useEffect(() => { stateRef.current = state }, [state])
 
-  useEffect(() => {
-    mountedRef.current = true
-    const ws = new WebSocket(`${WS_URL}/${player}`)
-    wsRef.current = ws
-
-    ws.onopen = () => { if (!mountedRef.current) return; setStatus('Waiting for opponent...') }
-
-    ws.onmessage = (e) => {
-      if (!mountedRef.current) return
-      const data = JSON.parse(e.data)
+  const { send } = useGameWS(WS_URL, player,
+    (data) => {
       setState(data)
-
       if (data.last_goal && data.last_goal !== prevGoal.current) {
         prevGoal.current = data.last_goal
         if (data.last_goal === player) { playSound('win');   vibrate([30, 20, 80]) }
         else                           { playSound('error'); vibrate([100])         }
       }
       if (!data.last_goal) prevGoal.current = null
-
       if (data.phase !== prevPhase.current) {
         if (data.phase === 'countdown') playSound('rematch')
         if (data.phase === 'result') {
@@ -66,28 +45,19 @@ export default function AirHockey({ player, players, onBack }) {
         }
         prevPhase.current = data.phase
       }
-
       if (data.message)                    setStatus(data.message)
       else if (data.connected?.length < 2) setStatus('Waiting for opponent...')
       else if (data.phase === 'countdown') setStatus(data.countdown > 0 ? `${data.countdown}...` : 'GO!')
       else if (data.phase === 'playing')   setStatus('')
       else if (data.phase === 'result') {
-        const myS   = data.scores?.[player] ?? 0
+        const myS    = data.scores?.[player] ?? 0
         const oppKey = data.connected?.find(n => n !== player)
-        const oppS  = data.scores?.[oppKey] ?? 0
+        const oppS   = data.scores?.[oppKey] ?? 0
         setStatus(myS > oppS ? '🎉 You win!' : oppS > myS ? `${oppKey} wins!` : '🤝 Draw!')
       }
-    }
-
-    ws.onclose = () => { if (!mountedRef.current) return; setStatus('Reconnecting...') }
-    ws.onerror = () => ws.close()
-
-    return () => {
-      mountedRef.current = false
-      ws.close()
-      cancelAnimationFrame(animRef.current)
-    }
-  }, [player])
+    },
+    () => setStatus('Waiting for opponent...')
+  )
 
   // ── Canvas render loop ────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,7 +153,7 @@ export default function AirHockey({ player, players, onBack }) {
 
       // Mallets
       Object.entries(s.mallets || {}).forEach(([name, m]) => {
-        const mp = safe(players, name, s.connected?.indexOf(name) ?? 0)
+        const mp = getPlayer(players, name, s.connected?.indexOf(name) ?? 0)
         const mx = sx(m.x)
         const my = sy(m.y)
         const mr = sr(s.board.mallet_r)
@@ -264,7 +234,7 @@ export default function AirHockey({ player, players, onBack }) {
     const lx   = (cssX - ox) / sc
     const ly   = flipped ? bh - (cssY - oy) / sc : (cssY - oy) / sc
 
-    wsRef.current?.send(JSON.stringify({ type: 'mallet', x: lx, y: ly }))
+    send({ type: 'mallet', x: lx, y: ly })
   }, [flipped])
 
   const onTouchMove = (e) => { e.preventDefault(); sendMallet(e.touches[0].clientX, e.touches[0].clientY) }
@@ -273,7 +243,7 @@ export default function AirHockey({ player, players, onBack }) {
   const sendReset = () => {
     prevGoal.current  = null
     prevPhase.current = null
-    wsRef.current?.send(JSON.stringify({ type: 'reset' }))
+    send({ type: 'reset' })
   }
 
   const phase      = state?.phase
