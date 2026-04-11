@@ -288,7 +288,7 @@ class SplendorGame:
         self._next_turn()
         return "ok"
 
-    def action_buy_card(self, player, card_id: int, from_reserve: bool = False) -> str:
+    def action_buy_card(self, player, card_id: int, from_reserve: bool = False, payment: dict = None) -> str:
         if player != self.current_player:
             return "Not your turn"
         # Find card
@@ -317,23 +317,47 @@ class SplendorGame:
         for g in GEMS:
             needed = max(0, card["cost"][g] - bonus.get(g, 0))
             cost[g] = needed
-        # Check can afford
         hand_gems = self.hands[player]["gems"]
-        gold_needed = 0
-        for g in GEMS:
-            deficit = max(0, cost[g] - hand_gems.get(g, 0))
-            gold_needed += deficit
-        if gold_needed > hand_gems.get("gold", 0):
-            return "Cannot afford"
-        # Pay
-        for g in GEMS:
-            pay = min(cost[g], hand_gems.get(g, 0))
-            hand_gems[g] -= pay
-            self.bank[g] += pay
-            deficit = cost[g] - pay
-            if deficit > 0:
-                hand_gems["gold"] -= deficit
-                self.bank["gold"] += deficit
+
+        if payment:
+            # Validate explicit payment from client
+            gold_used = payment.get("gold", 0)
+            for g in GEMS:
+                gem_pay = payment.get(g, 0)
+                if gem_pay > hand_gems.get(g, 0):
+                    return f"Not enough {g}"
+                covered = gem_pay + bonus.get(g, 0)
+                if covered < card["cost"][g]:
+                    gold_used += card["cost"][g] - covered
+            if gold_used > hand_gems.get("gold", 0):
+                return "Not enough gold"
+            # Apply payment
+            for g in GEMS:
+                gem_pay = min(payment.get(g, 0), hand_gems.get(g, 0))
+                hand_gems[g] -= gem_pay
+                self.bank[g] += gem_pay
+            gold_actually_needed = 0
+            for g in GEMS:
+                covered = (payment.get(g, 0) + bonus.get(g, 0))
+                gold_actually_needed += max(0, card["cost"][g] - covered)
+            hand_gems["gold"] -= gold_actually_needed
+            self.bank["gold"] += gold_actually_needed
+        else:
+            # Auto-calculate payment
+            gold_needed = 0
+            for g in GEMS:
+                deficit = max(0, cost[g] - hand_gems.get(g, 0))
+                gold_needed += deficit
+            if gold_needed > hand_gems.get("gold", 0):
+                return "Cannot afford"
+            for g in GEMS:
+                pay = min(cost[g], hand_gems.get(g, 0))
+                hand_gems[g] -= pay
+                self.bank[g] += pay
+                deficit = cost[g] - pay
+                if deficit > 0:
+                    hand_gems["gold"] -= deficit
+                    self.bank["gold"] += deficit
         # Add card
         self.hands[player]["cards"].append(card)
         self.hands[player]["vp"] += card["vp"]
@@ -490,7 +514,7 @@ async def splendor_ws(websocket: WebSocket, player: str):
                         if c["id"] == card_id:
                             card_info = {"id": c["id"], "bonus": c["bonus"], "tier": c["tier"]}
                             break
-                err = game.action_buy_card(player, card_id, from_reserve=from_reserve)
+                err = game.action_buy_card(player, card_id, from_reserve=from_reserve, payment=data.get("payment"))
                 if err != "ok":
                     await websocket.send_text(json.dumps({"error": err}))
                 else:

@@ -370,7 +370,223 @@ function Result({ state, player, players, onRestart, onBack, isHost }) {
   )
 }
 
-// ── Action Overlay — shown to all players on any action ───────────────────────
+// ── Payment Panel — lets player choose exactly which gems to pay ──────────────
+function PaymentPanel({ card, myHand, myBonus, onConfirm, onCancel }) {
+  const gems = ['white','blue','green','red','black']
+
+  // Calculate minimum required after bonuses
+  const minRequired = {}
+  for (const g of gems) {
+    minRequired[g] = Math.max(0, (card.cost[g]||0) - (myBonus[g]||0))
+  }
+
+  // Initialize payment: auto-fill from gems, use gold for shortfall
+  const initPayment = () => {
+    const pay = {}
+    let goldNeeded = 0
+    for (const g of gems) {
+      const need = minRequired[g]
+      const have = (myHand.gems||{})[g] || 0
+      pay[g] = Math.min(need, have)
+      goldNeeded += Math.max(0, need - have)
+    }
+    return { ...pay, gold: Math.min(goldNeeded, (myHand.gems||{}).gold||0) }
+  }
+
+  const [payment, setPayment] = useState(initPayment)
+
+  const totalPaid = (g) => (payment[g]||0) + (myBonus[g]||0)
+  const shortage = (g) => Math.max(0, (card.cost[g]||0) - totalPaid(g))
+  const totalShortage = gems.reduce((s,g) => s + shortage(g), 0)
+  const goldUsed = payment.gold || 0
+  const isValid = totalShortage === 0 && goldUsed <= totalShortage + goldUsed
+
+  const adjust = (g, delta) => {
+    const have = g === 'gold' ? ((myHand.gems||{}).gold||0) : ((myHand.gems||{})[g]||0)
+    const cur = payment[g] || 0
+    const next = Math.max(0, Math.min(have, cur + delta))
+    if (g !== 'gold') {
+      // Don't let gem go below what's needed (unless covered by gold)
+      const newGoldNeeded = gems.reduce((s, gg) => {
+        const paid = gg === g ? next + (myBonus[gg]||0) : (payment[gg]||0) + (myBonus[gg]||0)
+        return s + Math.max(0, (card.cost[gg]||0) - paid)
+      }, 0)
+      if (newGoldNeeded > ((myHand.gems||{}).gold||0)) return
+    }
+    setPayment(p => ({ ...p, [g]: next }))
+  }
+
+  // Recompute gold needed when gems change
+  const goldNeeded = gems.reduce((s,g) => {
+    return s + Math.max(0, (card.cost[g]||0) - (payment[g]||0) - (myBonus[g]||0))
+  }, 0)
+  const goldOk = goldNeeded <= ((myHand.gems||{}).gold||0)
+  const canConfirm = goldNeeded === 0 || (goldOk && goldNeeded > 0)
+
+  const confirmPayment = () => {
+    const finalPay = { ...payment, gold: goldNeeded }
+    onConfirm(finalPay)
+  }
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:150,
+      background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)',
+      display:'flex', alignItems:'flex-end', justifyContent:'center',
+    }} onClick={onCancel}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:'100%', maxWidth:480,
+        background:'linear-gradient(to top, #0a1a0a, #060e06)',
+        border:'1px solid #1e3a2a', borderRadius:'16px 16px 0 0',
+        padding:'16px 14px 24px', fontFamily:'Georgia,serif',
+        animation:'slideUp 0.25s ease',
+      }}>
+        {/* Card preview + title */}
+        <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:14 }}>
+          <div style={{ width:56, height:80, borderRadius:6, overflow:'hidden', flexShrink:0,
+            border:'2px solid #f59e0b', boxShadow:'0 0 16px rgba(245,158,11,0.3)' }}>
+            <img src={`/cards/${card.bonus}_${card.tier}.jpg`} alt=""
+              style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ color:'#f59e0b', fontWeight:900, fontSize:14, marginBottom:4 }}>
+              💎 Buy Card
+            </div>
+            <div style={{ color:'#6b7280', fontSize:11 }}>
+              Tier {card.tier} · {card.bonus} bonus
+              {card.vp > 0 && <span style={{ color:'#fbbf24', marginLeft:6 }}>+{card.vp} VP</span>}
+            </div>
+            {goldNeeded > 0 && (
+              <div style={{ color:'#f59e0b', fontSize:11, marginTop:3 }}>
+                Needs {goldNeeded} 🌟 gold
+              </div>
+            )}
+          </div>
+          <button onClick={onCancel} style={{
+            background:'rgba(255,255,255,0.06)', border:'1px solid #1e3a2a',
+            borderRadius:8, color:'#475569', width:32, height:32,
+            fontSize:16, cursor:'pointer', flexShrink:0,
+          }}>✕</button>
+        </div>
+
+        {/* Gem payment rows */}
+        <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:14 }}>
+          {gems.map(g => {
+            const cost = card.cost[g] || 0
+            const bonus = myBonus[g] || 0
+            const have = (myHand.gems||{})[g] || 0
+            const paying = payment[g] || 0
+            const covered = paying + bonus
+            const needed = Math.max(0, cost - bonus)
+            if (cost === 0) return null
+            return (
+              <div key={g} style={{
+                display:'flex', alignItems:'center', gap:8,
+                background: covered >= cost ? 'rgba(110,231,183,0.06)' : 'rgba(255,255,255,0.03)',
+                border:`1px solid ${covered >= cost ? '#1e3a2a' : '#3f1515'}`,
+                borderRadius:8, padding:'6px 10px',
+              }}>
+                {/* Gem color dot + name */}
+                <div style={{
+                  width:22, height:22, borderRadius:'50%', flexShrink:0,
+                  background:GEM[g].c2, border:`1px solid ${GEM[g].c1}44`,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:9, fontWeight:900, color:GEM[g].text,
+                }}>{GEM[g].name[0]}</div>
+
+                {/* Cost info */}
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                    <span style={{ color:'#94a3b8', fontSize:11 }}>Cost: {cost}</span>
+                    {bonus > 0 && (
+                      <span style={{
+                        background:BONUS_COLOR[g], borderRadius:3, padding:'0 4px',
+                        fontSize:9, fontWeight:900, color:g==='white'?'#1e293b':'#fff',
+                      }}>-{bonus} card</span>
+                    )}
+                    <span style={{ color:'#475569', fontSize:11 }}>= need {needed}</span>
+                  </div>
+                  <div style={{ color:'#334155', fontSize:10, marginTop:1 }}>
+                    You have: {have} in hand
+                  </div>
+                </div>
+
+                {/* +/- controls */}
+                {needed > 0 && (
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <button onClick={()=>adjust(g,-1)} disabled={paying===0} style={{
+                      width:26, height:26, borderRadius:6, border:'1px solid #1e3a2a',
+                      background:'rgba(255,255,255,0.05)', color:'#94a3b8',
+                      fontSize:16, cursor:paying>0?'pointer':'not-allowed',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      opacity:paying===0?0.3:1,
+                    }}>−</button>
+                    <span style={{
+                      color: covered >= cost ? '#6ee7b7' : '#ef4444',
+                      fontWeight:900, fontSize:15, minWidth:16, textAlign:'center',
+                    }}>{paying}</span>
+                    <button onClick={()=>adjust(g,1)} disabled={paying>=Math.min(have,needed)} style={{
+                      width:26, height:26, borderRadius:6, border:'1px solid #1e3a2a',
+                      background:'rgba(255,255,255,0.05)', color:'#94a3b8',
+                      fontSize:16, cursor:paying<Math.min(have,needed)?'pointer':'not-allowed',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      opacity:paying>=Math.min(have,needed)?0.3:1,
+                    }}>+</button>
+                  </div>
+                )}
+                {needed === 0 && (
+                  <span style={{ color:'#6ee7b7', fontSize:11 }}>✓ covered</span>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Gold row */}
+          {goldNeeded > 0 && (
+            <div style={{
+              display:'flex', alignItems:'center', gap:8,
+              background:'rgba(245,158,11,0.08)', border:'1px solid #f59e0b44',
+              borderRadius:8, padding:'6px 10px',
+            }}>
+              <div style={{
+                width:22, height:22, borderRadius:'50%', flexShrink:0,
+                background:GEM.gold.c2, display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:12, fontWeight:900, color:'#1a0f00',
+              }}>★</div>
+              <div style={{ flex:1 }}>
+                <div style={{ color:'#fbbf24', fontSize:11, fontWeight:700 }}>Gold (wild)</div>
+                <div style={{ color:'#78350f', fontSize:10 }}>
+                  Using {goldNeeded} of {(myHand.gems||{}).gold||0} available
+                </div>
+              </div>
+              <span style={{
+                color: goldOk ? '#fbbf24' : '#ef4444',
+                fontWeight:900, fontSize:15,
+              }}>{goldNeeded}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Confirm button */}
+        <button onClick={confirmPayment} disabled={!canConfirm || !goldOk} style={{
+          width:'100%', padding:'12px', borderRadius:10, border:'none',
+          background: canConfirm && goldOk
+            ? 'linear-gradient(135deg,#f59e0b,#d97706)'
+            : 'rgba(255,255,255,0.04)',
+          color: canConfirm && goldOk ? '#1a0f00' : '#2d4a3a',
+          fontSize:15, fontWeight:900, cursor: canConfirm && goldOk ? 'pointer' : 'not-allowed',
+          fontFamily:'Georgia,serif', letterSpacing:1,
+          boxShadow: canConfirm && goldOk ? '0 4px 16px rgba(245,158,11,0.4)' : 'none',
+        }}>
+          {!goldOk ? `Not enough gold (need ${goldNeeded})` : '💎 Confirm Purchase'}
+        </button>
+      </div>
+      <style>{`@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }`}</style>
+    </div>
+  )
+}
+
+
 function ActionOverlay({ action, players }) {
   const [phase, setPhase] = useState('enter') // enter → hold → exit
   useEffect(() => {
@@ -503,6 +719,7 @@ function GameBoard({ state, player, players, onAction, onBack }) {
   const [selectedGems, setSelectedGems] = useState({})
   const [selectedCard, setSelectedCard] = useState(null)
   const [error, setError] = useState('')
+  const [showPayment, setShowPayment] = useState(false)
   const [animKey, setAnimKey] = useState(null)
   const [animAction, setAnimAction] = useState(null)
   const prevActionRef = useRef(null)
@@ -834,7 +1051,7 @@ function GameBoard({ state, player, players, onAction, onBack }) {
         {/* ── Row 3: Action buttons (when card selected) ── */}
         {selectedCard&&isMyTurn&&!selectedCard.hidden&&(
           <div style={{ display:'flex', gap:6 }}>
-            <button onClick={()=>{onAction({type:'buy_card',card_id:selectedCard.id,from_reserve:selectedCard.fromReserve});clearSel()}}
+            <button onClick={()=>{ if(canAfford(selectedCard)) setShowPayment(true) }}
               disabled={!canAfford(selectedCard)} style={{
               flex:1, padding:'8px', borderRadius:8, border:'none',
               background:canAfford(selectedCard)?'linear-gradient(135deg,#f59e0b,#d97706)':'rgba(255,255,255,0.04)',
@@ -855,6 +1072,21 @@ function GameBoard({ state, player, players, onAction, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Payment panel */}
+      {showPayment && selectedCard && (
+        <PaymentPanel
+          card={selectedCard}
+          myHand={myHand}
+          myBonus={myBonus}
+          onConfirm={(payment) => {
+            onAction({ type:'buy_card', card_id:selectedCard.id, from_reserve:selectedCard.fromReserve, payment })
+            setShowPayment(false)
+            clearSel()
+          }}
+          onCancel={() => setShowPayment(false)}
+        />
+      )}
 
       {/* Error toast */}
       {error&&<div style={{
