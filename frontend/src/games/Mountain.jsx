@@ -160,7 +160,6 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
 
   const { send } = useGameWS(WS_URL, player,
     (data) => {
-      const data = JSON.parse(e.data)
       setState(data)
 
       if (data.question?.q !== prevQuestion.current) {
@@ -202,7 +201,6 @@ export default function Mountain({ player, players: playerConfig, onBack }) {
       else if (data.phase === 'result') {
         setStatus(data.winner === player ? '🎉 You win!' : `${allPlayers[data.winner]?.emoji||''} ${data.winner} wins!`)
       }
-    }
     },
     () => setStatus('Waiting for players...')
   )
