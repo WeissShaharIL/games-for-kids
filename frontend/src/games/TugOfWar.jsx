@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameWS } from '../hooks/useGameWS'
 import { playSound } from '../sounds'
 import { vibrate, VIBRATIONS } from '../vibrate'
