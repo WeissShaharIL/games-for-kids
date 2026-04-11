@@ -708,35 +708,73 @@ function GameBoard({ state, player, players, onAction, onBack }) {
       {/* ── Bottom hand panel ── */}
       <div style={{
         background:'rgba(4,8,4,0.98)', borderTop:'1px solid #1e3a2a',
-        padding:'8px 10px', flexShrink:0,
+        padding:'7px 10px 8px', flexShrink:0,
       }}>
-        {/* My gems + bonus + score */}
-        <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:6 }}>
-          <div style={{ display:'flex', gap:3, flex:1, overflowX:'auto' }}>
-            {[...gems,'gold'].map(g=>{
-              const count=(myHand.gems||{})[g]||0, bonus=g!=='gold'?(myBonus[g]||0):0
-              return (count>0||bonus>0)?(
-                <div key={g} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:1, flexShrink:0 }}>
-                  {bonus>0&&<div style={{
-                    background:BONUS_COLOR[g], borderRadius:2, padding:'0 3px',
-                    fontSize:8, fontWeight:900, color:g==='white'?'#1e293b':'#fff',
-                  }}>{bonus}</div>}
-                  <GemChip3D gem={g} count={count} size={30}/>
-                </div>
-              ):null
-            })}
-            {myGemTotal===0&&<span style={{ color:'#334155', fontSize:11 }}>No gems yet</span>}
+
+        {/* ── Row 1: VP + Cards bought (bonuses) + Gems in hand ── */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
+
+          {/* VP score */}
+          <div style={{
+            flexShrink:0, textAlign:'center',
+            background:'rgba(251,191,36,0.1)', border:'1px solid #f59e0b44',
+            borderRadius:8, padding:'3px 8px',
+          }}>
+            <div style={{ color:'#fbbf24', fontSize:20, fontWeight:900, lineHeight:1 }}>{myHand.vp||0}</div>
+            <div style={{ color:'#78350f', fontSize:8, fontWeight:700 }}>VP</div>
           </div>
-          <div style={{ flexShrink:0, textAlign:'right', paddingLeft:8, borderLeft:'1px solid #1e3a2a' }}>
-            <div style={{ color:'#fbbf24', fontSize:22, fontWeight:900, lineHeight:1 }}>{myHand.vp||0}</div>
-            <div style={{ color:'#475569', fontSize:9 }}>VP</div>
+
+          {/* Divider */}
+          <div style={{ width:1, height:32, background:'#1e3a2a', flexShrink:0 }}/>
+
+          {/* Cards bought — show bonus per gem color */}
+          <div style={{ flexShrink:0 }}>
+            <div style={{ color:'#475569', fontSize:8, letterSpacing:1, marginBottom:3 }}>CARDS</div>
+            <div style={{ display:'flex', gap:3 }}>
+              {gems.map(g=>{
+                const b=(myBonus[g]||0)
+                return (
+                  <div key={g} style={{
+                    width:22, height:22, borderRadius:4, flexShrink:0,
+                    background:b>0?BONUS_COLOR[g]:'rgba(255,255,255,0.04)',
+                    border:`1px solid ${b>0?BONUS_COLOR[g]+'88':'#1e3a2a'}`,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:10, fontWeight:900,
+                    color:b>0?(g==='white'?'#1e293b':'#fff'):'#334155',
+                  }}>{b>0?b:'·'}</div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width:1, height:32, background:'#1e3a2a', flexShrink:0 }}/>
+
+          {/* Gems in hand */}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ color:'#475569', fontSize:8, letterSpacing:1, marginBottom:3 }}>GEMS {myGemTotal}/10</div>
+            <div style={{ display:'flex', gap:3, overflowX:'auto' }}>
+              {[...gems,'gold'].map(g=>{
+                const count=(myHand.gems||{})[g]||0
+                return count>0?(
+                  <div key={g} style={{
+                    flexShrink:0, position:'relative',
+                    width:22, height:22, borderRadius:'50%',
+                    background:GEM[g].c2, border:`1px solid ${GEM[g].c1}44`,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:10, fontWeight:900, color:GEM[g].text,
+                  }}>{count}</div>
+                ):null
+              })}
+              {myGemTotal===0&&<span style={{ color:'#334155', fontSize:10 }}>—</span>}
+            </div>
           </div>
         </div>
 
-        {/* Reserved cards */}
+        {/* ── Row 2: Reserved cards (if any) ── */}
         {(myHand.reserved?.length||0)>0&&(
-          <div style={{ display:'flex', gap:5, alignItems:'center', marginBottom:6 }}>
-            <span style={{ color:'#334155', fontSize:8, flexShrink:0 }}>RESERVED</span>
+          <div style={{ display:'flex', gap:5, alignItems:'center', marginBottom:5 }}>
+            <span style={{ color:'#334155', fontSize:8, letterSpacing:1, flexShrink:0 }}>RESERVED</span>
             {myHand.reserved.map(c=>(
               <Card key={c.id} card={c} small selected={selectedCard?.id===c.id}
                 onClick={()=>{
@@ -748,7 +786,7 @@ function GameBoard({ state, player, players, onAction, onBack }) {
           </div>
         )}
 
-        {/* Action buttons */}
+        {/* ── Row 3: Action buttons (when card selected) ── */}
         {selectedCard&&isMyTurn&&!selectedCard.hidden&&(
           <div style={{ display:'flex', gap:6 }}>
             <button onClick={()=>{onAction({type:'buy_card',card_id:selectedCard.id,from_reserve:selectedCard.fromReserve});clearSel()}}
