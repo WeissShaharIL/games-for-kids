@@ -15,6 +15,8 @@ from games.airhockey  import router as airhockey_router
 from games.wordquiz import router as wordquiz_router
 from games.mountain   import router as mountain_router
 from games.tugofwar   import router as tugofwar_router
+from games.splendor import router as splendor_router
+
 #from games.chefshowdown import router as chefshowdown_router
 
 import online as registry
@@ -88,4 +90,6 @@ app.include_router(airhockey_router, prefix="/airhockey")
 app.include_router(mountain_router,  prefix="/mountain")
 app.include_router(tugofwar_router,  prefix="/tugofwar")
 app.include_router(wordquiz_router, prefix="/wordquiz")
+app.include_router(splendor_router, prefix="/splendor")
+
 #app.include_router(chefshowdown_router, prefix="/chefshowdown")

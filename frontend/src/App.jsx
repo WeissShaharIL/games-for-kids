@@ -11,6 +11,8 @@ import Mountain  from './games/Mountain'
 import WordQuiz from './games/WordQuiz'
 import TugOfWar from './games/TugOfWar'
 import ChefShowdown from './games/ChefShowdown'
+import Splendor from './games/Splendor'
+
 
 
 
@@ -29,6 +31,8 @@ const GAMES = [
   { id: 'tugofwar',  name: 'Tug of War', emoji: '💪', desc: 'Pull the rope!', component: TugOfWar, ready: true },
   { id: 'chefshowdown', name: 'Chef Showdown', emoji: '🍳', desc: '60s to impress the judges!', component: ChefShowdown, ready: true },
   { id: 'wordquiz',  name: 'Word Quiz', emoji: '🔤', desc: 'Hear it, tap it!', component: WordQuiz, ready: true },
+  { id: 'splendor', name: 'Splendor', emoji: '💎', desc: 'Collect gems, buy cards, impress nobles!', component: Splendor, ready: true },
+
 
 
 
