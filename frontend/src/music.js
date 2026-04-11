@@ -243,3 +243,13 @@ export function setMuted(val) {
 export function isMuted() {
   return muted
 }
+
+// ── Page Visibility — pause when app is backgrounded ─────────────────────────
+document.addEventListener('visibilitychange', () => {
+  if (!ac) return
+  if (document.hidden) {
+    if (ac.state === 'running') ac.suspend()
+  } else {
+    if (ac.state === 'suspended' && !muted) ac.resume()
+  }
+})

@@ -22,18 +22,16 @@ function darken(hex, amt = 40) {
   const b = Math.max(0, parseInt(hex.slice(5,7),16) - amt)
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`
 }
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
+  return `${r},${g},${b}`
+}
 
 function DPadBtn({ label, dir, color, onPress }) {
   const [pressed, setPressed] = useState(false)
-  const handleDown = (e) => {
-    e.preventDefault()
-    setPressed(true)
-    vibrate([15])   // short tap feedback
-    onPress(dir)
-  }
   return (
     <button
-      onPointerDown={handleDown}
+      onPointerDown={(e) => { e.preventDefault(); setPressed(true); vibrate([15]); onPress(dir) }}
       onPointerUp={() => setPressed(false)}
       onPointerLeave={() => setPressed(false)}
       style={{
@@ -51,17 +49,77 @@ function DPadBtn({ label, dir, color, onPress }) {
   )
 }
 
+// ── Lobby ─────────────────────────────────────────────────────────────────
+function Lobby({ player, players, connected, host, onStart, onBack, scores }) {
+  const p = safe(players, player, 0)
+  const isHost = player === host
+  const canStart = connected.length >= 2
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#0a1628', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:'sans-serif', padding:24 }}>
+      <button onClick={onBack} style={{ position:'absolute', top:16, left:16, background:'none', border:'none', fontSize:14, fontWeight:700, color:p.color, cursor:'pointer', padding:'6px 12px', borderRadius:10, fontFamily:'inherit' }}>← Back</button>
+
+      <div style={{ fontSize:56, marginBottom:8 }}>🐍</div>
+      <h2 style={{ color:'#fff', fontWeight:900, fontSize:24, margin:'0 0 4px' }}>Snake Race</h2>
+      <p style={{ color:'#475569', fontSize:13, marginBottom:28 }}>2–4 players • Last snake standing wins</p>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:8, width:'100%', maxWidth:340, marginBottom:28 }}>
+        {connected.map((name, i) => {
+          const pp = safe(players, name, i)
+          return (
+            <div key={name} style={{
+              display:'flex', alignItems:'center', gap:10,
+              background:`rgba(${hexToRgb(pp.color)},0.1)`,
+              border:`1.5px solid ${pp.color}44`,
+              borderRadius:12, padding:'10px 14px',
+            }}>
+              <span style={{ fontSize:20 }}>{pp.emoji}</span>
+              <span style={{ fontWeight:800, color:pp.color, flex:1 }}>{name}</span>
+              {name === host && <span style={{ fontSize:11, color:pp.color, opacity:0.7, fontWeight:700 }}>HOST</span>}
+              <span style={{ fontWeight:900, color:pp.color, fontSize:16 }}>{scores?.[name] ?? 0} pts</span>
+            </div>
+          )
+        })}
+        {connected.length < 4 && (
+          <div style={{ display:'flex', alignItems:'center', gap:10, background:'rgba(255,255,255,0.03)', border:'1.5px solid #1e293b', borderRadius:12, padding:'10px 14px' }}>
+            <span style={{ fontSize:20 }}>👤</span>
+            <span style={{ color:'#334155', fontSize:14 }}>Waiting for players... ({connected.length}/4)</span>
+          </div>
+        )}
+      </div>
+
+      {isHost ? (
+        <button onClick={onStart} disabled={!canStart} style={{
+          padding:'14px 40px', borderRadius:14, border:'none',
+          background: canStart ? p.color : '#1e293b',
+          color: canStart ? '#fff' : '#475569',
+          fontSize:16, fontWeight:900, cursor: canStart ? 'pointer' : 'not-allowed',
+          fontFamily:'inherit', transition:'all 0.2s',
+        }}>
+          {canStart ? '🐍 Start Race!' : `Need 1 more player (${connected.length}/2)`}
+        </button>
+      ) : (
+        <div style={{ color:'#475569', fontWeight:700, fontSize:14, textAlign:'center' }}>
+          ⏳ Waiting for <span style={{ color:safe(players, host, 0).color }}>{host}</span> to start...
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Snake({ player, players, onBack }) {
-  const [state, setState]  = useState(null)
+  const [state, setState]   = useState(null)
   const [status, setStatus] = useState('Connecting...')
-  const canvasRef   = useRef(null)
-  const wsRef       = useRef(null)
-  const mountedRef  = useRef(true)
-  const stateRef    = useRef(null)
-  const playersRef  = useRef(players)
-  const animIdRef   = useRef(null)
-  const prevWinner  = useRef(null)
-  const touchStart  = useRef(null)
+  const canvasRef     = useRef(null)
+  const wsRef         = useRef(null)
+  const mountedRef    = useRef(true)
+  const stateRef      = useRef(null)
+  const playersRef    = useRef(players)
+  const animIdRef     = useRef(null)
+  const prevWinner    = useRef(null)
+  const touchStart    = useRef(null)
+  const showArrowRef  = useRef(false)
+  const arrowTimerRef = useRef(null)
 
   useEffect(() => { stateRef.current = state }, [state])
   useEffect(() => { playersRef.current = players }, [players])
@@ -71,27 +129,36 @@ export default function Snake({ player, players, onBack }) {
   const connect = useCallback(() => {
     const ws = new WebSocket(`${WS_URL}/${player}`)
     wsRef.current = ws
-    ws.onopen = () => { if (mountedRef.current) setStatus('Waiting for opponent...') }
+    ws.onopen = () => { if (mountedRef.current) setStatus('Waiting...') }
     ws.onmessage = (e) => {
       if (!mountedRef.current) return
       const data = JSON.parse(e.data)
       setState(data)
+
       if (data.winner && data.winner !== prevWinner.current) {
-        if (data.winner === player)       { playSound('win');  vibrate(VIBRATIONS.win)  }
-        else if (data.winner !== 'draw')  { playSound('lose'); vibrate(VIBRATIONS.lose) }
-        else                              { playSound('draw');  vibrate(VIBRATIONS.draw) }
+        if (data.winner === player)      { playSound('win');  vibrate(VIBRATIONS.win)  }
+        else if (data.winner !== 'draw') { playSound('lose'); vibrate(VIBRATIONS.lose) }
+        else                             { playSound('draw'); vibrate(VIBRATIONS.draw) }
         prevWinner.current = data.winner
       }
       if (!data.winner) prevWinner.current = null
+
       const connected = data.connected || []
-      if (data.message)                setStatus(data.message)
-      else if (connected.length < 2)   setStatus('Waiting for opponent...')
-      else if (data.countdown > 0)     setStatus(`Starting in ${data.countdown}...`)
-      else if (data.countdown === 0)   setStatus('Go! 🐍')
-      else if (data.winner === 'draw') setStatus('🤝 Draw!')
-      else if (data.winner === player) setStatus('🎉 You won!')
-      else if (data.winner)            setStatus(`${data.winner} wins!`)
-      else                             setStatus('🐍 Game on!')
+      if (data.message)                  setStatus(data.message)
+      else if (data.phase === 'lobby')   setStatus(connected.length < 2 ? 'Waiting for players...' : 'Ready!')
+      else if (data.countdown > 0) {
+        setStatus(`Starting in ${data.countdown}...`)
+        showArrowRef.current = true
+        clearTimeout(arrowTimerRef.current)
+      }
+      else if (data.countdown === 0) {
+        setStatus('Go! 🐍')
+        showArrowRef.current = false
+      }
+      else if (data.phase === 'playing') setStatus('🐍 Game on!')
+      else if (data.winner === 'draw')   setStatus('🤝 Draw!')
+      else if (data.winner === player)   setStatus('🎉 You won!')
+      else if (data.winner)              setStatus(`${data.winner} wins!`)
     }
     ws.onclose = () => { if (mountedRef.current) { setStatus('Reconnecting...'); setTimeout(connect, 2000) } }
     ws.onerror = () => ws.close()
@@ -100,13 +167,19 @@ export default function Snake({ player, players, onBack }) {
   useEffect(() => {
     mountedRef.current = true
     connect()
-    return () => { mountedRef.current = false; wsRef.current?.close() }
+    return () => {
+      mountedRef.current = false
+      wsRef.current?.close()
+      clearTimeout(arrowTimerRef.current)
+      cancelAnimationFrame(animIdRef.current)
+    }
   }, [connect])
 
-  // Canvas render loop
-  useEffect(() => {
+  // Canvas render loop — uses callback ref so it starts the moment canvas mounts
+  const startLoop = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    if (animIdRef.current) cancelAnimationFrame(animIdRef.current)
     const ctx = canvas.getContext('2d')
 
     function drawSegment(col, row, color, isHead, dir) {
@@ -144,7 +217,6 @@ export default function Snake({ player, players, onBack }) {
       if (canvas.width !== W)  canvas.width  = W
       if (canvas.height !== H) canvas.height = H
 
-      // Checkerboard
       for (let r = 0; r < rows; r++)
         for (let c = 0; c < cols; c++) {
           ctx.fillStyle = (r + c) % 2 === 0 ? '#0f2744' : '#0d2340'
@@ -160,9 +232,10 @@ export default function Snake({ player, players, onBack }) {
 
       const connected = s.connected || []
 
-      // Apple
-      if (s.apple) {
-        const [ar, ac] = s.apple
+      // Apples
+      const apples = s.apples || []
+      apples.forEach(apple => {
+        const [ar, ac] = apple
         const ax = ac*CELL + CELL/2, ay = ar*CELL + CELL/2
         const glow = ctx.createRadialGradient(ax, ay, 0, ax, ay, CELL)
         glow.addColorStop(0, 'rgba(239,68,68,0.5)')
@@ -175,7 +248,7 @@ export default function Snake({ player, players, onBack }) {
         ctx.beginPath(); ctx.arc(ax-3, ay-3, 3, 0, Math.PI*2); ctx.fill()
         ctx.strokeStyle = '#15803d'; ctx.lineWidth = 2
         ctx.beginPath(); ctx.moveTo(ax, ay-CELL/2+2); ctx.lineTo(ax+3, ay-CELL/2-3); ctx.stroke()
-      }
+      })
 
       // Snakes
       if (s.snakes) {
@@ -185,6 +258,51 @@ export default function Snake({ player, players, onBack }) {
           if (!snake.alive) ctx.globalAlpha = 0.25
           snake.body.forEach((seg, i) => drawSegment(seg[1], seg[0], pi.color, i === 0, snake.dir))
           ctx.globalAlpha = 1
+
+          // Arrow pointing DOWN at my snake head during countdown
+          if (name === player && snake.alive && showArrowRef.current && snake.body.length > 0) {
+            const [hr, hc] = snake.body[0]
+            const cx = hc * CELL + CELL / 2
+            const headTop = hr * CELL
+            const blink = (Date.now() % 500) < 350
+            if (blink) {
+              const bob = Math.sin(Date.now() / 180) * 4
+              const aw = CELL * 2.8
+              const ah = CELL * 2.2
+              const ax = cx
+              const ay = headTop - CELL * 1.4 + bob
+              const glow = ctx.createRadialGradient(ax, ay - ah * 0.2, 1, ax, ay - ah * 0.2, CELL * 2.2)
+              glow.addColorStop(0, pi.color + 'aa')
+              glow.addColorStop(1, pi.color + '00')
+              ctx.fillStyle = glow
+              ctx.beginPath()
+              ctx.arc(ax, ay - ah * 0.2, CELL * 2.2, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.save()
+              ctx.shadowColor = '#000'
+              ctx.shadowBlur = 14
+              ctx.beginPath()
+              ctx.moveTo(ax,          ay)
+              ctx.lineTo(ax - aw/2,   ay - ah * 0.42)
+              ctx.lineTo(ax - aw/5,   ay - ah * 0.42)
+              ctx.lineTo(ax - aw/5,   ay - ah)
+              ctx.lineTo(ax + aw/5,   ay - ah)
+              ctx.lineTo(ax + aw/5,   ay - ah * 0.42)
+              ctx.lineTo(ax + aw/2,   ay - ah * 0.42)
+              ctx.closePath()
+              const grad = ctx.createLinearGradient(ax, ay - ah, ax, ay)
+              grad.addColorStop(0, '#ffffff')
+              grad.addColorStop(0.5, pi.color + 'ee')
+              grad.addColorStop(1, pi.color)
+              ctx.fillStyle = grad
+              ctx.fill()
+              ctx.shadowBlur = 0
+              ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+              ctx.lineWidth = 2.5
+              ctx.stroke()
+              ctx.restore()
+            }
+          }
         })
       }
 
@@ -218,21 +336,22 @@ export default function Snake({ player, players, onBack }) {
     return () => cancelAnimationFrame(animIdRef.current)
   }, [player, players])
 
+  const canvasCallbackRef = useCallback((node) => {
+    canvasRef.current = node
+    if (node) startLoop()
+  }, [startLoop])
+
   // Keyboard
   useEffect(() => {
     const MAP = { ArrowUp:'UP', ArrowDown:'DOWN', ArrowLeft:'LEFT', ArrowRight:'RIGHT', w:'UP', s:'DOWN', a:'LEFT', d:'RIGHT' }
     const onKey = (e) => {
       const dir = MAP[e.key]
-      if (dir) {
-        e.preventDefault()
-        wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
-      }
+      if (dir) { e.preventDefault(); wsRef.current?.send(JSON.stringify({ type:'dir', dir })) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Touch swipe on canvas
   const onTouchStart = (e) => { touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY } }
   const onTouchEnd = (e) => {
     if (!touchStart.current) return
@@ -245,28 +364,23 @@ export default function Snake({ player, players, onBack }) {
     touchStart.current = null
   }
 
-  // D-pad send — no dedup, every press goes through
-  const sendDir = (dir) => {
-    wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
-  }
+  const sendDir  = (dir) => wsRef.current?.send(JSON.stringify({ type:'dir', dir }))
+  const sendStart = () => wsRef.current?.send(JSON.stringify({ type:'start' }))
+  const sendReset = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type:'reset' })) }
 
-  const rematch = () => { playSound('rematch'); wsRef.current?.send(JSON.stringify({ type:'reset' })) }
-
+  const phase     = state?.phase || 'lobby'
   const connected = state?.connected || []
-  const bothHere  = connected.length >= 2
-  const other     = connected.find(n => n !== player) || null
-  const op        = other ? safe(players, other, 1) : null
-  const myScore   = state?.scores?.[player] ?? 0
-  const opScore   = other ? (state?.scores?.[other] ?? 0) : 0
+  const host      = state?.host || null
+  const isHost    = player === host
 
-  const hexToRgb = (hex) => {
-    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
-    return `${r},${g},${b}`
+  // ── Lobby ──────────────────────────────────────────────────────────────
+  if (phase === 'lobby') {
+    return <Lobby player={player} players={players} connected={connected} host={host} onStart={sendStart} onBack={onBack} scores={state?.scores} />
   }
 
+  // ── Countdown + Playing + Result ───────────────────────────────────────
   return (
     <div style={{ minHeight:'100vh', background:'#0a1628', display:'flex', flexDirection:'column', alignItems:'center', fontFamily:'sans-serif', userSelect:'none' }}>
-
       {/* Header */}
       <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 20px', background:'rgba(255,255,255,0.04)', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
         <button onClick={onBack} style={{ background:'none', border:'none', fontSize:14, fontWeight:700, color:p.color, cursor:'pointer', padding:'6px 12px', borderRadius:10, fontFamily:'inherit' }}>← Back</button>
@@ -274,46 +388,51 @@ export default function Snake({ player, players, onBack }) {
         <div style={{ width:56 }} />
       </div>
 
-      {/* Scores */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 16px', width:'100%', maxWidth:440 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, border:`2px solid ${p.color}44`, borderRadius:12, padding:'6px 12px', flex:1, background:`rgba(${hexToRgb(p.color)},0.1)` }}>
-          <span style={{ fontSize:18 }}>{p.emoji}</span>
-          <span style={{ fontWeight:800, color:p.color, fontSize:14, flex:1 }}>{player}</span>
-          <span style={{ fontSize:20, fontWeight:900, color:p.color }}>{myScore}</span>
-        </div>
-        <span style={{ fontSize:11, fontWeight:900, color:'#334155' }}>VS</span>
-        {bothHere && op ? (
-          <div style={{ display:'flex', alignItems:'center', gap:8, border:`2px solid ${op.color}44`, borderRadius:12, padding:'6px 12px', flex:1, background:`rgba(${hexToRgb(op.color)},0.1)` }}>
-            <span style={{ fontSize:18 }}>{op.emoji}</span>
-            <span style={{ fontWeight:800, color:op.color, fontSize:14, flex:1 }}>{other}</span>
-            <span style={{ fontSize:20, fontWeight:900, color:op.color }}>{opScore}</span>
-          </div>
-        ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:8, border:'2px solid #1e293b', borderRadius:12, padding:'6px 12px', flex:1, background:'rgba(255,255,255,0.03)' }}>
-            <span style={{ fontSize:18 }}>👤</span>
-            <span style={{ fontWeight:800, color:'#475569', fontSize:14, flex:1 }}>Waiting...</span>
-            <span style={{ fontSize:20, fontWeight:900, color:'#475569' }}>0</span>
-          </div>
-        )}
+      {/* Scores — all players */}
+      <div style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 12px', width:'100%', maxWidth:440, flexWrap:'wrap', justifyContent:'center' }}>
+        {connected.map((name, i) => {
+          const pp = safe(players, name, i)
+          const isMe = name === player
+          const alive = state?.snakes?.[name]?.alive !== false
+          return (
+            <div key={name} style={{
+              display:'flex', alignItems:'center', gap:6,
+              border:`2px solid ${pp.color}${isMe ? 'cc' : '44'}`,
+              borderRadius:10, padding:'5px 10px',
+              background:`rgba(${hexToRgb(pp.color)},${isMe ? 0.15 : 0.05})`,
+              opacity: phase === 'playing' && !alive ? 0.4 : 1,
+            }}>
+              <span style={{ fontSize:16 }}>{pp.emoji}</span>
+              <span style={{ fontWeight:800, color:pp.color, fontSize:13 }}>{name}</span>
+              <span style={{ fontWeight:900, color:pp.color, fontSize:15 }}>{state?.scores?.[name] ?? 0}</span>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Status */}
-      <div style={{ padding:'4px 16px', fontSize:13, fontWeight:700, color:'#64748b', marginBottom:4 }}>{status}</div>
+      <div style={{ padding:'2px 16px', fontSize:13, fontWeight:700, color:'#64748b', marginBottom:4 }}>{status}</div>
 
-      {/* Canvas */}
       <canvas
-        ref={canvasRef}
+        ref={canvasCallbackRef}
         style={{ borderRadius:10, boxShadow:`0 0 40px rgba(${hexToRgb(p.color)},0.2), 0 8px 32px #000a`, touchAction:'none', maxWidth:'95vw', display:'block' }}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       />
 
-      {state?.winner && (
-        <button onClick={rematch} style={{ marginTop:14, padding:'10px 28px', borderRadius:12, border:'none', background:p.color, color:'#fff', fontSize:15, fontWeight:900, cursor:'pointer' }}>🔄 Play Again</button>
+      {/* Play Again — host only, shown in result */}
+      {phase === 'result' && isHost && (
+        <button onClick={sendReset} style={{ marginTop:14, padding:'10px 28px', borderRadius:12, border:'none', background:p.color, color:'#fff', fontSize:15, fontWeight:900, cursor:'pointer' }}>
+          🔄 Play Again
+        </button>
+      )}
+      {phase === 'result' && !isHost && (
+        <div style={{ marginTop:14, color:'#475569', fontWeight:700, fontSize:14 }}>
+          Waiting for {safe(players, host, 0).emoji} {host} to start next round...
+        </div>
       )}
 
       {/* D-Pad */}
-      <div style={{ marginTop:16, display:'grid', gridTemplateColumns:'repeat(3, 72px)', gridTemplateRows:'repeat(3, 72px)', gap:8 }}>
+      <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'repeat(3, 72px)', gridTemplateRows:'repeat(3, 72px)', gap:8 }}>
         <div /><DPadBtn label="▲" dir="UP"    color={p.color} onPress={sendDir} /><div />
         <DPadBtn label="◀" dir="LEFT"  color={p.color} onPress={sendDir} />
         <div style={{ display:'flex', alignItems:'center', justifyContent:'center', color:`${p.color}44`, fontSize:20 }}>🕹️</div>
