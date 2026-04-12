@@ -364,14 +364,14 @@ function Result({ state, player, players, onRestart, onBack, isHost }) {
 function PaymentPanel({ card, myHand, myBonus, onConfirm, onCancel }) {
   const gems = ['white','blue','green','red','black']
 
-  // Calculate minimum required after bonuses
+  // Calculate minimum required after bonuses from purchased cards
   const minRequired = {}
   for (const g of gems) {
     minRequired[g] = Math.max(0, (card.cost[g]||0) - (myBonus[g]||0))
   }
 
   // Initialize payment: auto-fill from gems, use gold for shortfall
-  const initPayment = () => {
+  const calcInitPayment = () => {
     const pay = {}
     let goldNeeded = 0
     for (const g of gems) {
@@ -383,7 +383,12 @@ function PaymentPanel({ card, myHand, myBonus, onConfirm, onCancel }) {
     return { ...pay, gold: Math.min(goldNeeded, (myHand.gems||{}).gold||0) }
   }
 
-  const [payment, setPayment] = useState(initPayment)
+  const [payment, setPayment] = useState(calcInitPayment)
+
+  // Recalculate if card or bonus changes (e.g. panel opened for different card)
+  useEffect(() => {
+    setPayment(calcInitPayment())
+  }, [card.id, JSON.stringify(myBonus)])
 
   const totalPaid = (g) => (payment[g]||0) + (myBonus[g]||0)
   const shortage = (g) => Math.max(0, (card.cost[g]||0) - totalPaid(g))
