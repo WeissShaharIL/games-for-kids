@@ -434,6 +434,12 @@ class SplendorGame:
         if self.bank["gold"] > 0:
             self.bank["gold"] -= 1
             self.hands[player]["gems"]["gold"] += 1
+        # If player now has >10 gems they must discard down to 10
+        over = self._gem_count(player) - 10
+        if over > 0:
+            self.discard_player = player
+            self.discard_count  = over
+            return "discard"
         self._advance_final(player)
         self._next_turn()
         return "ok"
@@ -578,7 +584,7 @@ async def splendor_ws(websocket: WebSocket, player: str):
                             card_info = {"id": c["id"], "bonus": c["bonus"], "tier": c["tier"]}
                             break
                 err = game.action_reserve_card(player, card_id)
-                if err != "ok":
+                if err not in ("ok", "discard"):
                     await websocket.send_text(json.dumps({"error": err}))
                 else:
                     await broadcast(last_action={
