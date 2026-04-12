@@ -159,6 +159,8 @@ class SplendorGame:
         self.winner   = None
         self.final_round = False
         self.final_round_trigger = None
+        self.discard_player = None   # player who must discard gems
+        self.discard_count  = 0      # how many to discard
 
     def _init_player(self, name):
         self.hands[name] = {
@@ -214,6 +216,8 @@ class SplendorGame:
         self.winner = None
         self.final_round = False
         self.final_round_trigger = None
+        self.discard_player = None
+        self.discard_count  = 0
 
     @property
     def current_player(self):
@@ -268,14 +272,10 @@ class SplendorGame:
             g = gem_list[0]
             if self.bank.get(g, 0) < 4:
                 return f"Need 4 {g} gems in bank"
-            if self._gem_count(player) + 2 > 10:
-                return "Would exceed 10 gems"
             self.bank[g] -= 2
             self.hands[player]["gems"][g] += 2
         elif total <= 3 and len(set(gem_list)) == total:
             # 1-3 different
-            if self._gem_count(player) + total > 10:
-                return "Would exceed 10 gems"
             for g in gem_list:
                 if self.bank.get(g, 0) <= 0:
                     return f"No {g} gems in bank"
@@ -283,6 +283,35 @@ class SplendorGame:
                 self.hands[player]["gems"][g] += 1
         else:
             return "Invalid gem selection"
+        # If player now has >10 gems they must discard down to 10
+        over = self._gem_count(player) - 10
+        if over > 0:
+            self.discard_player = player
+            self.discard_count  = over
+            return "discard"
+        self._check_nobles(player)
+        self._advance_final(player)
+        self._next_turn()
+        return "ok"
+
+    def action_discard_gems(self, player, gems: dict) -> str:
+        """Player discards gems after taking too many (must discard exactly discard_count)."""
+        if player != self.discard_player:
+            return "Not your turn to discard"
+        total = sum(gems.values())
+        if total != self.discard_count:
+            return f"Must discard exactly {self.discard_count} gems"
+        for g, v in gems.items():
+            if v < 0:
+                return "Invalid discard"
+            if self.hands[player]["gems"].get(g, 0) < v:
+                return f"Not enough {g} to discard"
+        # Apply discard
+        for g, v in gems.items():
+            self.hands[player]["gems"][g] -= v
+            self.bank[g] = self.bank.get(g, 0) + v
+        self.discard_player = None
+        self.discard_count  = 0
         self._check_nobles(player)
         self._advance_final(player)
         self._next_turn()
@@ -440,7 +469,9 @@ class SplendorGame:
             "winner":       self.winner,
             "final_round":  self.final_round,
             "final_trigger": self.final_round_trigger,
-            "last_action":  last_action,
+            "last_action":   last_action,
+            "discard_player": self.discard_player,
+            "discard_count":  self.discard_count,
         }
 
 
@@ -487,10 +518,22 @@ async def splendor_ws(websocket: WebSocket, player: str):
                     game.setup()
                     await broadcast()
 
+            elif t == "discard_gems" and game.phase == "playing":
+                gems = data.get("gems", {})
+                err  = game.action_discard_gems(player, gems)
+                if err != "ok":
+                    await websocket.send_text(json.dumps({"error": err}))
+                else:
+                    await broadcast(last_action={
+                        "type": "discard_gems",
+                        "player": player,
+                        "gems": gems,
+                    })
+
             elif t == "take_gems" and game.phase == "playing":
                 gems = data.get("gems", {})
                 err  = game.action_take_gems(player, gems)
-                if err != "ok":
+                if err not in ("ok", "discard"):
                     await websocket.send_text(json.dumps({"error": err}))
                 else:
                     await broadcast(last_action={

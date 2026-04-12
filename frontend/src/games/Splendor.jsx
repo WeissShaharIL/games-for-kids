@@ -708,6 +708,75 @@ function ActionOverlay({ action, players }) {
   return null
 }
 
+// ── Discard Panel — shown when player has >10 gems after taking ───────────────
+function DiscardPanel({ myHand, discardCount, onConfirm }) {
+  const gems = ['white','blue','green','red','black','gold']
+  const [discard, setDiscard] = useState({})
+  const totalDiscard = Object.values(discard).reduce((a,b)=>a+b,0)
+  const remaining = discardCount - totalDiscard
+
+  const adjust = (g, delta) => {
+    const have = (myHand.gems||{})[g] || 0
+    const cur  = discard[g] || 0
+    const next = Math.max(0, Math.min(have, cur + delta))
+    if (delta > 0 && totalDiscard >= discardCount) return
+    setDiscard(d => ({ ...d, [g]: next }))
+  }
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:150,
+      background:'rgba(0,0,0,0.85)', backdropFilter:'blur(4px)',
+      display:'flex', alignItems:'flex-end', justifyContent:'center',
+    }}>
+      <div style={{
+        width:'100%', maxWidth:480,
+        background:'linear-gradient(to top, #1a0a0a, #2d0e0e)',
+        border:'1px solid #7f1d1d', borderRadius:'16px 16px 0 0',
+        padding:'20px 16px 32px',
+      }}>
+        <div style={{ fontSize:18, fontWeight:900, color:'#fca5a5', marginBottom:4, textAlign:'center' }}>
+          ⚠️ Too Many Gems!
+        </div>
+        <div style={{ fontSize:13, color:'#94a3b8', textAlign:'center', marginBottom:20 }}>
+          You have {(myHand.gem_count||0)} gems. Discard {discardCount} to keep 10.
+          {remaining > 0 && <span style={{color:'#f87171'}}> Still need to discard {remaining}.</span>}
+          {remaining === 0 && <span style={{color:'#4ade80'}}> ✓ Ready to confirm!</span>}
+        </div>
+
+        {gems.map(g => {
+          const have = (myHand.gems||{})[g] || 0
+          if (!have) return null
+          const d = discard[g] || 0
+          return (
+            <div key={g} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10, padding:'8px 12px', background:'rgba(255,255,255,0.05)', borderRadius:10 }}>
+              <div style={{ width:32, height:32, borderRadius:'50%', background:GEM[g]?.c2||'#888', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, color:'#1e293b' }}>
+                {g==='gold'?'★':'◈'}
+              </div>
+              <div style={{ flex:1, color:'#e2e8f0', fontWeight:700, fontSize:14 }}>
+                {g.charAt(0).toUpperCase()+g.slice(1)}
+                <span style={{color:'#94a3b8', fontWeight:400, fontSize:12}}> · have {have}</span>
+              </div>
+              <button onClick={()=>adjust(g,-1)} disabled={d<=0} style={{ width:32, height:32, borderRadius:8, border:'1px solid #4b5563', background:'#1f2937', color:'#e2e8f0', fontSize:18, cursor:d>0?'pointer':'not-allowed', opacity:d>0?1:0.4 }}>−</button>
+              <span style={{ width:24, textAlign:'center', fontWeight:900, color:'#f87171', fontSize:16 }}>{d}</span>
+              <button onClick={()=>adjust(g,1)} disabled={d>=have||totalDiscard>=discardCount} style={{ width:32, height:32, borderRadius:8, border:'1px solid #4b5563', background:'#1f2937', color:'#e2e8f0', fontSize:18, cursor:(d<have&&totalDiscard<discardCount)?'pointer':'not-allowed', opacity:(d<have&&totalDiscard<discardCount)?1:0.4 }}>+</button>
+            </div>
+          )
+        })}
+
+        <button onClick={()=>onConfirm(discard)} disabled={remaining!==0} style={{
+          width:'100%', marginTop:16, padding:'14px 0', borderRadius:12, border:'none',
+          background: remaining===0 ? '#dc2626' : '#374151',
+          color: remaining===0 ? '#fff' : '#6b7280',
+          fontSize:15, fontWeight:900, cursor:remaining===0?'pointer':'not-allowed',
+        }}>
+          {remaining===0 ? '🗑️ Discard Gems' : `Select ${remaining} more to discard`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Game Board ────────────────────────────────────────────────────────────────
 function GameBoard({ state, player, players, onAction, onBack }) {
   const [selectedGems, setSelectedGems] = useState({})
@@ -1066,6 +1135,26 @@ function GameBoard({ state, player, players, onAction, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Discard panel — shown when I must discard gems */}
+      {state.discard_player === player && (
+        <DiscardPanel
+          myHand={myHand}
+          discardCount={state.discard_count}
+          onConfirm={(gems) => onAction({ type:'discard_gems', gems })}
+        />
+      )}
+
+      {/* Waiting for other player to discard */}
+      {state.discard_player && state.discard_player !== player && (
+        <div style={{
+          position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)',
+          background:'#1a0a0a', border:'1px solid #7f1d1d', borderRadius:12,
+          padding:'10px 20px', color:'#fca5a5', fontWeight:700, fontSize:13, zIndex:100,
+        }}>
+          ⏳ Waiting for {state.discard_player} to discard gems...
+        </div>
+      )}
 
       {/* Payment panel */}
       {showPayment && selectedCard && (
