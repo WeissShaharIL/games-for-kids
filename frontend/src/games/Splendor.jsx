@@ -389,7 +389,6 @@ function PaymentPanel({ card, myHand, myBonus, onConfirm, onCancel }) {
   const shortage = (g) => Math.max(0, (card.cost[g]||0) - totalPaid(g))
   const totalShortage = gems.reduce((s,g) => s + shortage(g), 0)
   const goldUsed = payment.gold || 0
-  const isValid = totalShortage === 0 && goldUsed <= totalShortage + goldUsed
 
   const adjust = (g, delta) => {
     const have = g === 'gold' ? ((myHand.gems||{}).gold||0) : ((myHand.gems||{})[g]||0)
@@ -406,12 +405,12 @@ function PaymentPanel({ card, myHand, myBonus, onConfirm, onCancel }) {
     setPayment(p => ({ ...p, [g]: next }))
   }
 
-  // Recompute gold needed when gems change
+  // Gold needed = remaining shortfall after gems paid
   const goldNeeded = gems.reduce((s,g) => {
     return s + Math.max(0, (card.cost[g]||0) - (payment[g]||0) - (myBonus[g]||0))
   }, 0)
   const goldOk = goldNeeded <= ((myHand.gems||{}).gold||0)
-  const canConfirm = goldNeeded === 0 || (goldOk && goldNeeded > 0)
+  const canConfirm = totalShortage <= goldNeeded && goldOk
 
   const confirmPayment = () => {
     const finalPay = { ...payment, gold: goldNeeded }
